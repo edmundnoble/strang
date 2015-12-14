@@ -30,22 +30,23 @@ Strang has two modes: line mode and text mode.
 
 A raw Strang command is a series of characters.
 It starts with a mode character, 'l' for line mode or 't' for text mode.
+(not used yet, everything is line mode)
 
 > modeParser :: Parser Mode
 > modeParser = (AC.char 'l' $> Line) `mappend` (AC.char 't' $> Text)
 
-This is for parsing strings inside quotes.
-It's used as the primary argument-passing method.
+This is for passing strings to commands.
 
 > stringArg :: Parser ByteString
 > stringArg = AC.char '"' *> AC.takeTill (== '"') <* AC.char '"'
 
-This is for passing single characters.
+This is for passing single characters to commands.
 
 > charArg :: Parser Char
 > charArg = AC.anyChar
 
-Interpreter state type.
+Interpreter state type. Note the recursion in ListState, which is used below
+in `stateCata` to support arbitrarily-nested commands.
 
 > data StrangState = StringState ByteString | ListState [StrangState]
 >    deriving Show
@@ -70,22 +71,22 @@ Command type. Basically a function between states, with a log.
 >   | otherwise = res1
 
 
-Makes a command fold over states. Not sure exactly what the best name is for this yet.
-Basically, this attempts to run commands at the highest possible level in a nested ListState,
-and recurses through the levels if it fails.
+Makes a command fold over states. Not sure exactly what the best name is for
+this yet. Basically, this attempts to run commands at the highest possible
+level in a nested ListState, and recurses through the levels if it fails.
 
 > stateCata :: Command -> Command
 > stateCata cmd st@(ListState bss) = let runNested = ListState <$> traverse (stateCata cmd) bss in
 >                                       cmd st `orElse` runNested
 > stateCata cmd st = cmd st
 
-Split implementation.
+Split command implementation.
 
 > splitCommand :: Char -> Command
-> splitCommand ch (StringState str) = WriterT $ Right (ListState (StringState <$> C.split ch str), [])
+> splitCommand ch (StringState str) = pure $ ListState (StringState <$> C.split ch str)
 > splitCommand _ st = WriterT $ Left (StrangTypeError $ C.pack $ "can't split " ++ show st)
 
-Print implementation.
+Print command implementation.
 
 > printCommand :: Command
 > printCommand state = let res = C.pack $ show state in
@@ -97,11 +98,11 @@ Almost-command that returns the string in the passed state, or fails.
 > onlyString (StringState str) = pure str
 > onlyString st = WriterT $ Left $ strError ("just wanted a string, got " ++ show st)
 
-Join command.
+Join command implementation.
 
 > joinCommand :: ByteString -> Command
 > joinCommand sep (ListState bss) = traverse onlyString bss >>= join where
->                   join strs = WriterT $ pure (StringState $ BS.intercalate sep strs, [])
+>                   join strs = pure $ StringState (BS.intercalate sep strs)
 > joinCommand _ st = WriterT $ Left $ strError ("just wanted a recursive list of strings, got " ++ show st)
 
 Split command parser. Syntax is:
