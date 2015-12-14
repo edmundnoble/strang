@@ -1,0 +1,29 @@
+name: strang-interpreter
+version: 0.0.1
+cabal-version: 1.22
+build-type: Simple
+license: AllRightsReserved
+synopsis: Interpreter
+description:
+    .Hallo
+    .
+    .
+
+executable strang-interpreter
+    main-is: Strang.lhs
+    build-depends:
+        attoparsec -any,
+        base -any,
+        bytestring -any,
+        comonad -any,
+        either -any,
+        free -any,
+        monadplus -any,
+        mtl -any,
+        regex-base -any,
+        regex-tdfa -any,
+        transformers -any
+    default-language: Haskell2010
+    default-extensions: MultiParamTypeClasses FlexibleInstances
+    hs-source-dirs: src
+
