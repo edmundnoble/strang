@@ -71,20 +71,21 @@ Command type. Basically a function between states, with a log.
 
 
 Makes a command fold over states. Not sure exactly what the best name is for this yet.
-Basically, this attempts to run commands at the highest possible level in a nested ListState.
+Basically, this attempts to run commands at the highest possible level in a nested ListState,
+and recurses through the levels if it fails.
 
 > stateCata :: Command -> Command
 > stateCata cmd st@(ListState bss) = let runNested = ListState <$> traverse (stateCata cmd) bss in
 >                                       cmd st `orElse` runNested
 > stateCata cmd st = cmd st
 
-Split command.
+Split implementation.
 
 > splitCommand :: Char -> Command
 > splitCommand ch (StringState str) = WriterT $ Right (ListState (StringState <$> C.split ch str), [])
 > splitCommand _ st = WriterT $ Left (StrangTypeError $ C.pack $ "can't split " ++ show st)
 
-Print command.
+Print implementation.
 
 > printCommand :: Command
 > printCommand state = let res = C.pack $ show state in
@@ -105,7 +106,7 @@ Join command.
 
 Split command parser. Syntax is:
 
-    s'<char>'
+    s<char>
 
 
 > splitParser :: Parser Command
@@ -114,6 +115,8 @@ Split command parser. Syntax is:
 Print command parser. Syntax is:
 
     <other commands>p
+
+Basically it appends the current value to the log.
 
 > printParser :: Parser Command
 > printParser = AC.char 'p' $> printCommand
