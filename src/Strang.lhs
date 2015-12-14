@@ -28,7 +28,7 @@ Strang has two modes: line mode and text mode.
 
 > data Mode = Line | Text
 
-A raw Strang command is a series of characters.
+A Strang command is a series of characters.
 It starts with a mode character, 'l' for line mode or 't' for text mode.
 (not used yet, everything is line mode)
 
