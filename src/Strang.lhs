@@ -1,4 +1,4 @@
-> {-# LANGUAGE DataKinds,TypeFamilies,GADTs,KindSignatures,RankNTypes,EmptyDataDecls,FunctionalDependencies #-}
+> {-# LANGUAGE DataKinds,TypeFamilies,GADTs,RankNTypes #-}
 
 > module Main (
 >     main
