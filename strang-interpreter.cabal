@@ -15,13 +15,12 @@ executable strang-interpreter
         attoparsec -any,
         base -any,
         bytestring -any,
-        comonad -any,
         either -any,
-        free -any,
         monadplus -any,
         mtl -any,
         regex-base -any,
         regex-tdfa -any,
+        safe -any,
         transformers -any
     default-language: Haskell2010
     default-extensions: MultiParamTypeClasses FlexibleInstances

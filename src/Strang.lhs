@@ -17,6 +17,8 @@
 > import Data.Functor.Identity
 > import Control.Applicative.Alternative
 > import Data.Either.Combinators
+> import System.Environment
+> import Safe
 
 Most of Strang's errors are strings.
 
@@ -120,36 +122,26 @@ Join command parser. Joins the elements of a list of strings. Syntax is:
 > joinParser :: Parser Command
 > joinParser = joinCommand <$> (AC.char 'j' *> stringArg)
 
+Parser for any command.
+
 > commandParser :: Parser Command
 > commandParser = splitParser `mappend` printParser `mappend` joinParser
 
 > programParser :: Parser [Command]
 > programParser = many1' commandParser
 
-> commandRunner :: [Command] -> ByteString -> CommandResult
-> commandRunner cmds start = foldl (>>=) (pure $ StringState start) (fmap stateCata cmds)
+> runCommand :: [Command] -> ByteString -> CommandResult
+> runCommand cmds start = foldl (>>=) (pure $ StringState start) (fmap stateCata cmds)
 
+> interpretCommand :: ByteString -> IO ()
+> interpretCommand cmd = let commandOrErr = parseOnly programParser cmd in
+>           either print (\a -> let cmd = runCommand a in forever ((cmd <$> BS.getLine) >>= print)) commandOrErr
 
-Runs a command, including the log.
 
 > main :: IO ()
 > main = do
->   line <- BS.getLine
->   let commandOrErr = parseOnly programParser line in
->           either print (\a -> print $ commandRunner a (C.pack "hello,world,fuck,you")) commandOrErr
-
-
-
-
-
-
-
-
-
-
-
-
-
+>   args <- getArgs
+>   maybe (putStrLn ("No command!")) (interpretCommand . C.pack) (headMay args)
 
 
 
