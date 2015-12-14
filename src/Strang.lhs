@@ -70,7 +70,8 @@ Command type. Basically a function between states, with a log.
 >   | otherwise = res1
 
 
-Makes a command fold over states.
+Makes a command fold over states. Not sure exactly what the best name is for this yet.
+Basically, this attempts to run commands at the highest possible level in a nested ListState.
 
 > stateCata :: Command -> Command
 > stateCata cmd st@(ListState bss) = let runNested = ListState <$> traverse (stateCata cmd) bss in
@@ -89,15 +90,17 @@ Print command.
 > printCommand state = let res = C.pack $ show state in
 >                        WriterT $ Right (StringState res, [res])
 
+Almost-command that returns the string in the passed state, or fails.
+
 > onlyString :: StrangState -> WriterT [ByteString] (Either StrangError) ByteString
 > onlyString (StringState str) = pure str
 > onlyString st = WriterT $ Left $ strError ("just wanted a string, got " ++ show st)
 
-
 Join command.
 
 > joinCommand :: ByteString -> Command
-> joinCommand sep (ListState bss) = traverse onlyString bss >>= (\strs -> WriterT $ pure (StringState $ BS.intercalate sep strs, []))
+> joinCommand sep (ListState bss) = traverse onlyString bss >>= join where
+>                   join strs = WriterT $ pure (StringState $ BS.intercalate sep strs, [])
 > joinCommand _ st = WriterT $ Left $ strError ("just wanted a recursive list of strings, got " ++ show st)
 
 Split command parser. Syntax is:
@@ -141,7 +144,7 @@ Parser for any command.
 > main :: IO ()
 > main = do
 >   args <- getArgs
->   maybe (putStrLn ("No command!")) (interpretCommand . C.pack) (headMay args)
+>   maybe (putStrLn "No command!") (interpretCommand . C.pack) (headMay args)
 
 
 
