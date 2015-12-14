@@ -70,7 +70,6 @@ Command type. Basically a function between states, with a log.
 >   | isRight (runWriterT res2) = res2
 >   | otherwise = res1
 
-
 Makes a command fold over states. Not sure exactly what the best name is for
 this yet. Basically, this attempts to run commands at the highest possible
 level in a nested ListState, and recurses through the levels if it fails.
