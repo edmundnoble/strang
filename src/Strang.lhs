@@ -53,8 +53,6 @@ in `stateCata` to support arbitrarily-nested commands.
 
 > data StrangError = StrangTypeError ByteString deriving (Show)
 
- instance Error StrangError where
-
 > strError :: String -> StrangError
 > strError = StrangTypeError . C.pack
 
