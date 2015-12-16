@@ -20,20 +20,19 @@
 > import System.Environment
 > import Safe
 
-Most of Strang's errors are strings.
-
-> type StringOr a = Either String a
+> (>*<) :: Applicative f => f a -> f b -> f (a, b)
+> (>*<) = liftA2 (,)
 
 Strang has two modes: line mode and text mode.
 
-> data Mode = Line | Text
+> data Mode = LineMode | TextMode
 
 A Strang command is a series of characters.
 It starts with a mode character, 'l' for line mode or 't' for text mode.
-(not used yet, everything is line mode)
 
 > modeParser :: Parser Mode
-> modeParser = (AC.char 'l' $> Line) `mappend` (AC.char 't' $> Text)
+> modeParser = consumingParser `mappend` pure LineMode where
+>                   consumingParser = (AC.char 'l' $> LineMode) `mappend` (AC.char 't' $> TextMode)
 
 This is for passing strings to commands.
 
@@ -56,13 +55,13 @@ in `stateCata` to support arbitrarily-nested commands.
 > strError :: String -> StrangError
 > strError = StrangTypeError . C.pack
 
-> type CommandResult = WriterT [ByteString] (Either StrangError) StrangState
+> type CommandResult r = WriterT [ByteString] (Either StrangError) r
 
 Command type. Basically a function between states, with a log.
 
-> type Command =  StrangState -> CommandResult
+> type Command =  StrangState -> CommandResult StrangState
 
-> orElse :: CommandResult -> CommandResult -> CommandResult
+> orElse :: CommandResult a -> CommandResult a -> CommandResult a
 > orElse res1 res2
 >   | isRight (runWriterT res1) = res1
 >   | isRight (runWriterT res2) = res2
@@ -131,24 +130,26 @@ Parser for any command.
 > commandParser :: Parser Command
 > commandParser = splitParser `mappend` printParser `mappend` joinParser
 
-> programParser :: Parser [Command]
-> programParser = many1' commandParser
+> programParser :: Parser (Mode, [Command])
+> programParser = modeParser >*< many1' commandParser
 
-> runCommand :: [Command] -> ByteString -> CommandResult
+> runCommand :: [Command] -> ByteString -> CommandResult StrangState
 > runCommand cmds start = foldl (>>=) (pure $ StringState start) (fmap stateCata cmds)
 
+> commandInputForMode :: Mode -> IO ByteString
+> commandInputForMode LineMode = BS.getLine
+> commandInputForMode TextMode = BS.getContents
+
 > interpretCommand :: ByteString -> IO ()
-> interpretCommand cmd = let commandOrErr = parseOnly programParser cmd in
->           either print (\a -> let cmd = runCommand a in forever ((cmd <$> BS.getLine) >>= print)) commandOrErr
+> interpretCommand cmd = let commandAndModeOrErr = parseOnly programParser cmd in
+>                           either print (\a -> let (mode, cmd) = a in
+>                               (runCommand cmd <$> commandInputForMode mode) >>= print) commandAndModeOrErr
 
 
 > main :: IO ()
 > main = do
 >   args <- getArgs
 >   maybe (putStrLn "No command!") (interpretCommand . C.pack) (headMay args)
-
-
-
 
 
 
