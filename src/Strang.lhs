@@ -1,27 +1,41 @@
-> {-# LANGUAGE DataKinds,TypeFamilies,GADTs,RankNTypes #-}
+> {-# LANGUAGE DataKinds,TypeFamilies,GADTs,RankNTypes,TupleSections #-}
 
 > module Main (
 >     main
 > ) where
 
+> import Text.Regex.TDFA
 > import Text.Regex.TDFA.ByteString
+> import Text.Regex.Base
 > import qualified Data.ByteString as BS
 > import Data.ByteString (ByteString)
-> import Data.Attoparsec.ByteString as A
+> import Data.Attoparsec.ByteString (Parser, many1', parseOnly)
 > import qualified Data.Attoparsec.ByteString.Char8 as AC
 > import Data.Monoid
 > import Data.ByteString.Internal (c2w, w2c)
 > import qualified Data.ByteString.Char8 as C
 > import Data.Functor
-> import Control.Monad.Writer.Strict
+> import Control.Monad.Writer.Strict hiding (sequence)
 > import Data.Functor.Identity
 > import Control.Applicative.Alternative
 > import Data.Either.Combinators
 > import System.Environment
 > import Safe
+> import Data.Traversable hiding (sequence)
+> import Control.Monad.Reader hiding (sequence)
+> import Control.Arrow
+
+> ($>) :: Functor f => f a -> b -> f b
+> ($>) = flip (fmap . const)
+
+> (<$) :: Functor f => b -> f a -> f b
+> (<$) = fmap . const
 
 > (>*<) :: Applicative f => f a -> f b -> f (a, b)
 > (>*<) = liftA2 (,)
+
+> leftMap :: (a -> b) -> Either a c -> Either b c
+> leftMap f = either (Left . f) (Right)
 
 Strang has two modes: line mode and text mode.
 
@@ -52,14 +66,19 @@ in `stateCata` to support arbitrarily-nested commands.
 
 > data StrangError = StrangTypeError ByteString deriving (Show)
 
-> strError :: String -> StrangError
-> strError = StrangTypeError . C.pack
-
 > type CommandResult r = WriterT [ByteString] (Either StrangError) r
+
+> liftError :: StrangError -> CommandResult r
+> liftError = WriterT . Left
+
+> strError :: String -> CommandResult r
+> strError = liftError . StrangTypeError . C.pack
 
 Command type. Basically a function between states, with a log.
 
-> type Command =  StrangState -> CommandResult StrangState
+> type Command = StrangState -> CommandResult StrangState
+
+> type Modal a = Reader Mode a
 
 > orElse :: CommandResult a -> CommandResult a -> CommandResult a
 > orElse res1 res2
@@ -80,7 +99,7 @@ Split command implementation.
 
 > splitCommand :: Char -> Command
 > splitCommand ch (StringState str) = pure $ ListState (StringState <$> C.split ch str)
-> splitCommand _ st = WriterT $ Left (StrangTypeError $ C.pack $ "can't split " ++ show st)
+> splitCommand _ st = liftError (StrangTypeError $ C.pack $ "can't split " ++ show st)
 
 Print command implementation.
 
@@ -92,14 +111,25 @@ Almost-command that returns the string in the passed state, or fails.
 
 > onlyString :: StrangState -> WriterT [ByteString] (Either StrangError) ByteString
 > onlyString (StringState str) = pure str
-> onlyString st = WriterT $ Left $ strError ("just wanted a string, got " ++ show st)
+> onlyString st = strError ("just wanted a string, got " ++ show st)
 
 Join command implementation.
 
 > joinCommand :: ByteString -> Command
 > joinCommand sep (ListState bss) = traverse onlyString bss >>= join where
 >                   join strs = pure $ StringState (BS.intercalate sep strs)
-> joinCommand _ st = WriterT $ Left $ strError ("just wanted a recursive list of strings, got " ++ show st)
+> joinCommand _ st = strError ("just wanted a recursive list of strings, got " ++ show st)
+
+Regex command.
+
+> makeRegexCommand :: ByteString -> Either String Command
+> makeRegexCommand reg = regexCommand <$> compile defaultCompOpt defaultExecOpt reg
+
+> regexCommand :: Regex -> Command
+> regexCommand reg (StringState str) = ListState <$> (pure $ StringState <$> (res)) where
+>                                            res :: [ByteString]
+>                                            res = matchM reg str
+> regexCommand _ st = strError ("just wanted a string, got " ++ show st)
 
 Split command parser. Syntax is:
 
@@ -125,13 +155,25 @@ Join command parser. Joins the elements of a list of strings. Syntax is:
 > joinParser :: Parser Command
 > joinParser = joinCommand <$> (AC.char 'j' *> stringArg)
 
+Regex command parser! Syntax is:
+
+    r"<regexstuff>"
+
+> regexParser :: Parser (Either String Command)
+> regexParser = makeRegexCommand <$> (AC.char 'r' *> stringArg)
+
+Parsers that don't need to do any additional verification before succeeding.
+
+> pureCommandParser :: Parser Command
+> pureCommandParser = splitParser `mappend` printParser `mappend` joinParser
+
 Parser for any command.
 
-> commandParser :: Parser Command
-> commandParser = splitParser `mappend` printParser `mappend` joinParser
+> commandParser :: Parser (Either String Command)
+> commandParser = (pure <$> pureCommandParser) `mappend` regexParser
 
-> programParser :: Parser (Mode, [Command])
-> programParser = modeParser >*< many1' commandParser
+> programParser :: Parser (Mode, Either String [Command])
+> programParser = modeParser >*< (sequence <$> many1' commandParser)
 
 > runCommand :: [Command] -> ByteString -> CommandResult StrangState
 > runCommand cmds start = foldl (>>=) (pure $ StringState start) (fmap stateCata cmds)
@@ -140,11 +182,19 @@ Parser for any command.
 > commandInputForMode LineMode = BS.getLine
 > commandInputForMode TextMode = BS.getContents
 
-> interpretCommand :: ByteString -> IO ()
-> interpretCommand cmd = let commandAndModeOrErr = parseOnly programParser cmd in
->                           either print (\a -> let (mode, cmd) = a in
->                               (runCommand cmd <$> commandInputForMode mode) >>= print) commandAndModeOrErr
+> printCommandResult :: CommandResult StrangState -> IO ()
+> printCommandResult = print
 
+> printParsingError :: String -> IO ()
+> printParsingError = putStrLn
+
+> collapseErrors :: (Mode, Either String [Command]) -> Either String (Mode, [Command])
+> collapseErrors (x, e) = (\a -> (x, a)) <$> e
+
+> interpretCommand :: ByteString -> IO ()
+> interpretCommand cmd = let commandAndModeOrErr = (parseOnly programParser cmd >>= collapseErrors) in
+>                           either printParsingError (\a -> let (mode, cmd) = a in
+>                               (runCommand cmd <$> commandInputForMode mode) >>= printCommandResult) commandAndModeOrErr
 
 > main :: IO ()
 > main = do
