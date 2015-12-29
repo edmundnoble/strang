@@ -121,13 +121,12 @@ Join command implementation.
 Regex command.
 
 > makeRegexCommand :: Bool -> ByteString -> Either ParseError Command
-> makeRegexCommand captureGroups reg = let execOptions = ExecOption { captureGroups }; withStringErr = regexCommand <$> compile defaultCompOpt execOptions reg in
+> makeRegexCommand captureGroups reg = let execOptions = ExecOption { captureGroups }
+>                                          withStringErr = regexCommand <$> compile defaultCompOpt execOptions reg in
 >                            leftMap (flip newErrorMessage (initialPos "") . Message) withStringErr
 
 > regexCommand :: Regex -> Command
-> regexCommand reg (StringState str) = ListState <$> pure (StringState <$> res) where
->                                            res :: [ByteString]
->                                            res = matchM reg str
+> regexCommand reg (StringState str) = ListState <$> pure (StringState <$> matchM reg str)
 > regexCommand _ st = strError ("just wanted a string, got " ++ show st)
 
 Split command parser. Syntax is:
