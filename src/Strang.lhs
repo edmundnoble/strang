@@ -1,4 +1,4 @@
-> {-# LANGUAGE DataKinds,TypeFamilies,GADTs,RankNTypes,TupleSections #-}
+> {-# LANGUAGE DataKinds,TypeFamilies,GADTs,RankNTypes,TupleSections,NamedFieldPuns #-}
 
 > module Main (
 >     main
@@ -9,7 +9,7 @@
 > import qualified Data.ByteString as BS
 > import Data.ByteString (ByteString)
 > import Text.Parsec.ByteString
-> import qualified Text.ParserCombinators.Parsec.Char as AC
+> import Text.ParserCombinators.Parsec.Char (char, anyChar)
 > import Text.ParserCombinators.Parsec.Prim (parse)
 > import Text.Parsec.Combinator
 > import Text.Parsec.Error
@@ -43,19 +43,18 @@ It starts with a mode character, 'l' for line mode or 't' for text mode.
 
 > modeParser :: Parser Mode
 > modeParser = consumingParser <|> pure LineMode where
->                   consumingParser = (AC.char 'l' $> LineMode) <|> (AC.char 't' $> TextMode)
+>                   consumingParser = (char 'l' $> LineMode) <|> (char 't' $> TextMode)
 
 This is for passing strings to commands.
 
 > stringArg :: Parser ByteString
-> stringArg = inQuotes $ C.pack <$> manyTill AC.anyChar quoteChar where
->               inQuotes p = quoteChar *> p <* quoteChar
->               quoteChar = AC.char '"'
+> stringArg = quoteChar *> (C.pack <$> manyTill anyChar quoteChar) where
+>               quoteChar = char '"'
 
 This is for passing single characters to commands.
 
 > charArg :: Parser Char
-> charArg = AC.anyChar
+> charArg = anyChar
 
 Interpreter state type. Note the recursion in ListState, which is used below
 in `stateCata` to support arbitrarily-nested commands.
@@ -121,8 +120,8 @@ Join command implementation.
 
 Regex command.
 
-> makeRegexCommand :: ByteString -> Either ParseError Command
-> makeRegexCommand reg = let withStringErr = regexCommand <$> compile defaultCompOpt defaultExecOpt reg in
+> makeRegexCommand :: Bool -> ByteString -> Either ParseError Command
+> makeRegexCommand captureGroups reg = let execOptions = ExecOption { captureGroups }; withStringErr = regexCommand <$> compile defaultCompOpt execOptions reg in
 >                            leftMap (flip newErrorMessage (initialPos "") . Message) withStringErr
 
 > regexCommand :: Regex -> Command
@@ -137,7 +136,7 @@ Split command parser. Syntax is:
 
 
 > splitParser :: Parser Command
-> splitParser = splitCommand <$> (AC.char 's' *> charArg)
+> splitParser = splitCommand <$> (char 's' *> charArg)
 
 Print command parser. Syntax is:
 
@@ -146,21 +145,21 @@ Print command parser. Syntax is:
 Basically it appends the current value to the log.
 
 > printParser :: Parser Command
-> printParser = AC.char 'p' $> printCommand
+> printParser = char 'p' $> printCommand
 
 Join command parser. Joins the elements of a list of strings. Syntax is:
 
     <other commands>j"delim"
 
 > joinParser :: Parser Command
-> joinParser = joinCommand <$> (AC.char 'j' *> stringArg)
+> joinParser = joinCommand <$> (char 'j' *> stringArg)
 
-Regex command parser! Syntax is:
+Non-capturing command parser! Syntax is:
 
     r"<regexstuff>"
 
-> regexParser :: Parser (Either ParseError Command)
-> regexParser = makeRegexCommand <$> (AC.char 'r' *> stringArg)
+> noCaptureRegexParser :: Parser (Either ParseError Command)
+> noCaptureRegexParser = makeRegexCommand False <$> (char 'r' *> stringArg)
 
 Parsers that don't need to do any additional verification before succeeding.
 
@@ -170,13 +169,14 @@ Parsers that don't need to do any additional verification before succeeding.
 Parser for any command.
 
 > commandParser :: Parser (Either ParseError Command)
-> commandParser = (pure <$> pureCommandParser) <|> regexParser
+> commandParser = (pure <$> pureCommandParser) <|> noCaptureRegexParser
 
 > programParser :: Parser (Either ParseError (Mode, [Command]))
 > programParser = do
 >           mode <- modeParser
 >           commands <- sequence <$> many1 commandParser
->           pure $ pure mode >*< commands
+>           let allCommands = pure $ pure mode >*< commands in
+>             allCommands <* eof
 
 > runCommand :: [Command] -> ByteString -> CommandResult StrangState
 > runCommand cmds start = foldl (>>=) (pure $ StringState start) (fmap stateCata cmds)
@@ -204,8 +204,8 @@ Parser for any command.
 
 > main :: IO ()
 > main = do
->   args <- getArgs
->   maybe (putStrLn "No command!") (interpretProgram . C.pack) (headMay args)
+>   program <- BS.getLine
+>   interpretProgram program
 
 
 
