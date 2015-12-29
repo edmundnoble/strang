@@ -6,11 +6,14 @@
 
 > import Text.Regex.TDFA
 > import Text.Regex.TDFA.ByteString
-> import Text.Regex.Base
 > import qualified Data.ByteString as BS
 > import Data.ByteString (ByteString)
-> import Data.Attoparsec.ByteString (Parser, many1', parseOnly)
-> import qualified Data.Attoparsec.ByteString.Char8 as AC
+> import Text.Parsec.ByteString
+> import qualified Text.ParserCombinators.Parsec.Char as AC
+> import Text.ParserCombinators.Parsec.Prim (parse)
+> import Text.Parsec.Combinator
+> import Text.Parsec.Error
+> import Text.Parsec.Pos (initialPos)
 > import Data.Monoid
 > import Data.ByteString.Internal (c2w, w2c)
 > import qualified Data.ByteString.Char8 as C
@@ -25,17 +28,11 @@
 > import Control.Monad.Reader hiding (sequence)
 > import Control.Arrow
 
-> ($>) :: Functor f => f a -> b -> f b
-> ($>) = flip (fmap . const)
-
-> (<$) :: Functor f => b -> f a -> f b
-> (<$) = fmap . const
-
 > (>*<) :: Applicative f => f a -> f b -> f (a, b)
 > (>*<) = liftA2 (,)
 
 > leftMap :: (a -> b) -> Either a c -> Either b c
-> leftMap f = either (Left . f) (Right)
+> leftMap f = either (Left . f) Right
 
 Strang has two modes: line mode and text mode.
 
@@ -45,13 +42,15 @@ A Strang command is a series of characters.
 It starts with a mode character, 'l' for line mode or 't' for text mode.
 
 > modeParser :: Parser Mode
-> modeParser = consumingParser `mappend` pure LineMode where
->                   consumingParser = (AC.char 'l' $> LineMode) `mappend` (AC.char 't' $> TextMode)
+> modeParser = consumingParser <|> pure LineMode where
+>                   consumingParser = (AC.char 'l' $> LineMode) <|> (AC.char 't' $> TextMode)
 
 This is for passing strings to commands.
 
 > stringArg :: Parser ByteString
-> stringArg = AC.char '"' *> AC.takeTill (== '"') <* AC.char '"'
+> stringArg = inQuotes $ C.pack <$> manyTill AC.anyChar quoteChar where
+>               inQuotes p = quoteChar *> p <* quoteChar
+>               quoteChar = AC.char '"'
 
 This is for passing single characters to commands.
 
@@ -122,11 +121,12 @@ Join command implementation.
 
 Regex command.
 
-> makeRegexCommand :: ByteString -> Either String Command
-> makeRegexCommand reg = regexCommand <$> compile defaultCompOpt defaultExecOpt reg
+> makeRegexCommand :: ByteString -> Either ParseError Command
+> makeRegexCommand reg = let withStringErr = regexCommand <$> compile defaultCompOpt defaultExecOpt reg in
+>                            leftMap (flip newErrorMessage (initialPos "") . Message) withStringErr
 
 > regexCommand :: Regex -> Command
-> regexCommand reg (StringState str) = ListState <$> (pure $ StringState <$> (res)) where
+> regexCommand reg (StringState str) = ListState <$> pure (StringState <$> res) where
 >                                            res :: [ByteString]
 >                                            res = matchM reg str
 > regexCommand _ st = strError ("just wanted a string, got " ++ show st)
@@ -159,47 +159,53 @@ Regex command parser! Syntax is:
 
     r"<regexstuff>"
 
-> regexParser :: Parser (Either String Command)
+> regexParser :: Parser (Either ParseError Command)
 > regexParser = makeRegexCommand <$> (AC.char 'r' *> stringArg)
 
 Parsers that don't need to do any additional verification before succeeding.
 
 > pureCommandParser :: Parser Command
-> pureCommandParser = splitParser `mappend` printParser `mappend` joinParser
+> pureCommandParser = splitParser <|> printParser <|> joinParser
 
 Parser for any command.
 
-> commandParser :: Parser (Either String Command)
-> commandParser = (pure <$> pureCommandParser) `mappend` regexParser
+> commandParser :: Parser (Either ParseError Command)
+> commandParser = (pure <$> pureCommandParser) <|> regexParser
 
-> programParser :: Parser (Mode, Either String [Command])
-> programParser = modeParser >*< (sequence <$> many1' commandParser)
+> programParser :: Parser (Either ParseError (Mode, [Command]))
+> programParser = do
+>           mode <- modeParser
+>           commands <- sequence <$> many1 commandParser
+>           pure $ pure mode >*< commands
 
 > runCommand :: [Command] -> ByteString -> CommandResult StrangState
 > runCommand cmds start = foldl (>>=) (pure $ StringState start) (fmap stateCata cmds)
 
-> commandInputForMode :: Mode -> IO ByteString
-> commandInputForMode LineMode = BS.getLine
-> commandInputForMode TextMode = BS.getContents
+> programInputForMode :: Mode -> IO ByteString
+> programInputForMode LineMode = BS.getLine
+> programInputForMode TextMode = BS.getContents
 
-> printCommandResult :: CommandResult StrangState -> IO ()
-> printCommandResult = print
+> printProgramResult :: CommandResult StrangState -> IO ()
+> printProgramResult = print
 
-> printParsingError :: String -> IO ()
-> printParsingError = putStrLn
+> printParsingError :: ParseError -> IO ()
+> printParsingError = print
 
-> collapseErrors :: (Mode, Either String [Command]) -> Either String (Mode, [Command])
-> collapseErrors (x, e) = (\a -> (x, a)) <$> e
+> putIn :: Functor m => a -> m b -> m (a, b)
+> putIn x = fmap (const x &&& id)
 
-> interpretCommand :: ByteString -> IO ()
-> interpretCommand cmd = let commandAndModeOrErr = (parseOnly programParser cmd >>= collapseErrors) in
->                           either printParsingError (\a -> let (mode, cmd) = a in
->                               (runCommand cmd <$> commandInputForMode mode) >>= printCommandResult) commandAndModeOrErr
+> parseProgram :: ByteString -> Either ParseError (Mode, [Command])
+> parseProgram program = join $ parse programParser "" program
+
+> interpretProgram :: ByteString -> IO ()
+> interpretProgram cmd = let programAndModeOrErr = parseProgram cmd in
+>                           either printParsingError (\(mode, cmd) ->
+>                               (runCommand cmd <$> programInputForMode mode) >>= printProgramResult) programAndModeOrErr
 
 > main :: IO ()
 > main = do
 >   args <- getArgs
->   maybe (putStrLn "No command!") (interpretCommand . C.pack) (headMay args)
+>   maybe (putStrLn "No command!") (interpretProgram . C.pack) (headMay args)
 
 
 

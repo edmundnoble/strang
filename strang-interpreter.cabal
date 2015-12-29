@@ -9,15 +9,15 @@ description:
     .
     .
 
-executable strang-interpreter
+executable str
     main-is: Strang.lhs
     build-depends:
-        attoparsec -any,
         base -any,
         bytestring -any,
         either -any,
         monadplus -any,
         mtl -any,
+        parsec -any,
         regex-base -any,
         regex-tdfa -any,
         safe -any,
