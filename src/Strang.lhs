@@ -27,6 +27,7 @@
 > import Data.Traversable hiding (sequence)
 > import Control.Monad.Reader hiding (sequence)
 > import Control.Arrow
+> import Data.Array
 
 > (>*<) :: Applicative f => f a -> f b -> f (a, b)
 > (>*<) = liftA2 (,)
@@ -125,8 +126,12 @@ Regex command.
 >                                          withStringErr = regexCommand <$> compile defaultCompOpt execOptions reg in
 >                            leftMap (flip newErrorMessage (initialPos "") . Message) withStringErr
 
+> matchRegex :: Regex -> ByteString -> StrangState
+> matchRegex reg str = let matches = match reg str in
+>                      ListState $ StringState <$> getAllTextSubmatches matches
+
 > regexCommand :: Regex -> Command
-> regexCommand reg (StringState str) = ListState <$> pure (StringState <$> matchM reg str)
+> regexCommand reg (StringState str) = pure $ matchRegex reg str
 > regexCommand _ st = strError ("just wanted a string, got " ++ show st)
 
 Split command parser. Syntax is:
@@ -153,12 +158,19 @@ Join command parser. Joins the elements of a list of strings. Syntax is:
 > joinParser :: Parser Command
 > joinParser = joinCommand <$> (char 'j' *> stringArg)
 
-Non-capturing command parser! Syntax is:
+Non-capturing regex command parser! Syntax is:
 
     r"<regexstuff>"
 
 > noCaptureRegexParser :: Parser (Either ParseError Command)
 > noCaptureRegexParser = makeRegexCommand False <$> (char 'r' *> stringArg)
+
+Capturing regex command parser. Syntax is:
+
+    c"<regexstuff>"
+
+> captureRegexParser :: Parser (Either ParseError Command)
+> captureRegexParser = makeRegexCommand True <$> (char 'c' *> stringArg)
 
 Parsers that don't need to do any additional verification before succeeding.
 
@@ -168,14 +180,14 @@ Parsers that don't need to do any additional verification before succeeding.
 Parser for any command.
 
 > commandParser :: Parser (Either ParseError Command)
-> commandParser = (pure <$> pureCommandParser) <|> noCaptureRegexParser
+> commandParser = (pure <$> pureCommandParser) <|> noCaptureRegexParser <|> captureRegexParser
 
 > programParser :: Parser (Either ParseError (Mode, [Command]))
 > programParser = do
 >           mode <- modeParser
 >           commands <- sequence <$> many1 commandParser
->           let allCommands = pure $ pure mode >*< commands in
->             allCommands <* eof
+>           let program = pure $ pure mode >*< commands in
+>             program <* eof
 
 > runCommand :: [Command] -> ByteString -> CommandResult StrangState
 > runCommand cmds start = foldl (>>=) (pure $ StringState start) (fmap stateCata cmds)

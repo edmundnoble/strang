@@ -12,6 +12,7 @@ description:
 executable str
     main-is: Strang.lhs
     build-depends:
+        array -any,
         base -any,
         bytestring -any,
         either -any,
