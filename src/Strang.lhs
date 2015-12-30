@@ -9,6 +9,7 @@
 > import qualified Data.ByteString as BS
 > import Data.ByteString (ByteString)
 > import Text.Parsec.ByteString
+> import Text.Parsec.Prim hiding ((<|>))
 > import Text.ParserCombinators.Parsec.Char (char, anyChar)
 > import Text.ParserCombinators.Parsec.Prim (parse)
 > import Text.Parsec.Combinator
@@ -49,8 +50,8 @@ It starts with a mode character, 'l' for line mode or 't' for text mode.
 This is for passing strings to commands.
 
 > stringArg :: Parser ByteString
-> stringArg = quoteChar *> (C.pack <$> manyTill anyChar quoteChar) where
->               quoteChar = char '"'
+> stringArg = C.pack <$> surroundedBy (char '"') anyChar where
+>               surroundedBy q p = q *> manyTill (try p) (try q) <* q where
 
 This is for passing single characters to commands.
 
@@ -128,7 +129,7 @@ Regex command.
 
 > matchRegex :: Regex -> ByteString -> StrangState
 > matchRegex reg str = let matches = match reg str in
->                      ListState $ StringState <$> getAllTextSubmatches matches
+>                               ListState $ ListState <$> fmap StringState <$> matches
 
 > regexCommand :: Regex -> Command
 > regexCommand reg (StringState str) = pure $ matchRegex reg str
@@ -157,6 +158,10 @@ Join command parser. Joins the elements of a list of strings. Syntax is:
 
 > joinParser :: Parser Command
 > joinParser = joinCommand <$> (char 'j' *> stringArg)
+
+Direction switch command parser.
+
+Index command parser. Indexes into the farthest outer liststate.
 
 Non-capturing regex command parser! Syntax is:
 
