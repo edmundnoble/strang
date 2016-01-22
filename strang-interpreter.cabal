@@ -10,7 +10,7 @@ description:
     .
 
 executable str
-    main-is: Strang.lhs
+    main-is: Strang.hs
     build-depends:
         array -any,
         base -any,
@@ -22,8 +22,9 @@ executable str
         regex-base -any,
         regex-tdfa -any,
         safe -any,
-        transformers -any
+        transformers -any,
+        data-default -any,
+        singletons -any
     default-language: Haskell2010
     default-extensions: MultiParamTypeClasses FlexibleInstances
     hs-source-dirs: src
-
