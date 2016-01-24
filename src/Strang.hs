@@ -237,7 +237,7 @@ commandParser = parserZero <||> splitParser <||> printParser <||> joinParser <||
 data AnyCommand = forall a b. Exists { runAny :: Command a b }
 
 instance Show AnyCommand where
-  show e@Exists { runAny = c } = name c ++ ":: (" ++ show (inTyAny e) ++ "->" ++ show (outTyAny e) ++ ")"
+  show e@Exists { runAny = c } = name c ++ " :: (" ++ show (inTyAny e) ++ "->" ++ show (outTyAny e) ++ ")"
 
 inTyAny :: AnyCommand -> UnTy
 inTyAny Exists { runAny = Command { inType = inTy } } = UnTy inTy
@@ -257,14 +257,14 @@ composeCommands ab bc = Command { inType = inType ab
                                 , run = run ab >=> run bc
                                 , name = "(" ++ name bc ++ " . " ++ name ab ++ ")" }
 
-canCombineWith :: AnyCommand -> AnyCommand -> Bool
-canCombineWith a1 a2 = let inTypeGeneric = (inTyAny a2 == UnTy AnyTy)
-                           outTypeGeneric = (outTyAny a1 == UnTy AnyTy) in
-                            (outTyAny a2 == inTyAny a1) || inTypeGeneric || outTypeGeneric
+canCombineWith :: UnTy -> UnTy -> Bool
+canCombineWith a1 a2 = let inTypeGeneric = (a2 == UnTy AnyTy)
+                           outTypeGeneric = (a1 == UnTy AnyTy) in
+                            (a2 == a1) || inTypeGeneric || outTypeGeneric
 
 -- This is a bad way to do this. I need a way to lift the runtime equality to type-level equality
 combineCommands :: AnyCommand -> AnyCommand -> Either String AnyCommand
-combineCommands a1@Exists{ runAny = f } a2@Exists{ runAny = g } = if a1 `canCombineWith` a2 then (Right . Exists) (composeCommands (unsafeCoerce f) (unsafeCoerce g)) else Left $ "Could not unify " ++ show a1 ++ " with " ++ show a2
+combineCommands a1@Exists{ runAny = f } a2@Exists{ runAny = g } = if outTyAny a1 `canCombineWith` inTyAny a2 then (Right . Exists) (composeCommands (unsafeCoerce f) (unsafeCoerce g)) else Left $ "Could not unify " ++ show a1 ++ " with " ++ show a2
 
 typecheckCommands :: [AnyCommand] -> Either String AnyCommand
 typecheckCommands [] = Right Exists { runAny = Command { run = pure, inType = AnyTy, outType = AnyTy, name = "Identity" } }
@@ -272,7 +272,7 @@ typecheckCommands (x:xs) = foldM combineCommands x xs
 
 commandWithType :: StateTy a -> StateTy b -> AnyCommand -> Either String (Command a b)
 commandWithType t1 t2 e@Exists { runAny = c@Command { run = fun } } =
-  if (inTyAny e == UnTy t1) && (outTyAny e == UnTy t2) then
+  if UnTy t1 `canCombineWith` inTyAny e && UnTy t2 `canCombineWith` outTyAny e then
     Right Command { run = unsafeCoerce fun
                   , inType = t1
                   , outType = t2
@@ -283,7 +283,7 @@ commandWithType t1 t2 e@Exists { runAny = c@Command { run = fun } } =
 runCommand :: [AnyCommand] -> Either String (ByteString -> CommandResult ByteString)
 runCommand [] = Left "No command!"
 runCommand cmds = do
-  f <- run <$> (typecheckCommands cmds >>= commandWithType StringTy StringTy)
+  f <- run <$> (typecheckCommands (cmds ++ [Exists { runAny = printCommand }]) >>= commandWithType StringTy StringTy)
   return $ (<$>) grab . f . makeState
 
 programInputForMode :: Mode -> IO ByteString
