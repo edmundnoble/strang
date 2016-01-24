@@ -1,4 +1,4 @@
-{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds ,ScopedTypeVariables,TemplateHaskell,KindSignatures,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Trustworthy #-}
+{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds ,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Trustworthy,ExistentialQuantification #-}
 
 module Main (
    main
@@ -30,8 +30,6 @@ import Control.Monad.Reader hiding (sequence)
 import Control.Arrow
 import Data.Array
 import Data.Default
-import Data.Singletons
-import Data.Singletons.Decide
 import Unsafe.Coerce
 import Data.List
 
@@ -54,7 +52,7 @@ modeParser = consumingParser <|> pure LineMode where
 -- This is for passing strings to commands.
 stringArg :: Parser ByteString
 stringArg = C.pack <$> surroundedBy (char '"') anyChar where
-             surroundedBy q p = between q q $ manyTill p (try q) where
+             surroundedBy q p = q *> manyTill p (try q)
 
 -- This is for passing single characters to commands.
 
@@ -72,16 +70,18 @@ data StateTy a where
 
 data UnTy = forall a. UnTy (StateTy a)
 
-instance Eq (UnTy) where
-  (==) (UnTy StringTy) (UnTy UnitTy) = False
-  (==) (UnTy StringTy) (UnTy (ListTy _)) = False
-  (==) (UnTy UnitTy) (UnTy (ListTy _)) = False
-  (==) (UnTy (ListTy t)) (UnTy (ListTy y)) = (UnTy t == UnTy y)
-  (==) (UnTy AnyTy) _ = True
-  (==) _ (UnTy AnyTy) = True
+instance Show UnTy where
+  show (UnTy t) = "Anonymously: " ++ show t
+
+instance Eq UnTy where
+  (==) (UnTy StringTy) (UnTy StringTy) = True
+  (==) (UnTy UnitTy) (UnTy UnitTy) = True
+  (==) (UnTy (ListTy t)) (UnTy (ListTy y)) = UnTy t == UnTy y
+  (==) (UnTy AnyTy) (UnTy AnyTy) = True
+  (==) _ _ = False
 
 instance Eq (StateTy a) where
-  (==) a b = (UnTy a) == (UnTy b)
+  (==) a b = UnTy a == UnTy b
 
 instance Show (StateTy a) where
     show StringTy = "String"
@@ -99,7 +99,7 @@ instance Default (StateTy ()) where
   def = UnitTy
 
 data StrangState a where
-  StrangState :: (Show a, Default (StateTy a)) => (StateTy a) -> a -> StrangState a
+  StrangState :: (Show a, Default (StateTy a)) => StateTy a -> a -> StrangState a
 
 makeState :: (Show a, Default (StateTy a)) => a -> StrangState a
 makeState = StrangState def
@@ -123,10 +123,12 @@ liftError = WriterT . Left
 strError :: String -> CommandResult r
 strError = liftError . StrangTypeError . C.pack
 
+
 -- Command type. Basically a function between states, with runtime type info and a log.
 data Command i o = Command { run     :: StrangState i -> CommandResult (StrangState o)
                            , inType  :: StateTy i
-                           , outType :: StateTy o }
+                           , outType :: StateTy o
+                           , name :: String }
 
 orElse :: CommandResult a -> CommandResult a -> CommandResult a
 orElse res1 res2
@@ -138,30 +140,29 @@ orElse res1 res2
 -- this yet. Basically, this attempts to run commands at the highest possible
 -- level in a nested ListState, and recurses through the levels if it fails.
 
---cata cmd st@(StrangState t@(ListTy StringTy) bss) = let runNested = makeState <$> traverse (cata $ runCommand cmd) bss in
-                               --runCommand cmd st `orElse` runNested
-cata cmd st = undefined --cmd st
+-- lol jk
 
-commandR :: (Default (StateTy a), Default (StateTy b)) => (StrangState a -> CommandResult (StrangState b)) -> Command a b
-commandR f = Command { run = f, inType = def, outType = def }
+commandR :: (Default (StateTy a), Default (StateTy b)) => String -> (StrangState a -> CommandResult (StrangState b)) -> Command a b
+commandR n f = Command { run = f, inType = def, outType = def, name = n }
 
-command :: (Default (StateTy a), Default (StateTy b)) => (StrangState a -> StrangState b) -> Command a b
-command f = commandR (pure . f)
+command :: (Default (StateTy a), Default (StateTy b)) => String -> (StrangState a -> StrangState b) -> Command a b
+command n f = commandR n (pure . f)
 
 -- Split command implementation.
 
+
 splitCommand :: Char -> Command ByteString [ByteString]
-splitCommand ch = command (\(StrangState StringTy str) -> makeState (C.split ch str))
+splitCommand ch = command "Split" (\(StrangState _ str) -> makeState (C.split ch str))
 
 -- Print command implementation.
 
 printCommand :: Command i i
-printCommand = Command { run = (\st -> WriterT $ (Right (st, [C.pack $ show st]))), inType = AnyTy, outType = AnyTy }
+printCommand = Command { run = \st -> WriterT (Right (st, [C.pack $ show st])), inType = AnyTy, outType = AnyTy, name = "Print" }
 
 -- Join command implementation.
 
 joinCommand :: ByteString -> Command [ByteString] ByteString
-joinCommand sep = command (\(StrangState _ bss) -> makeState (BS.intercalate sep bss))
+joinCommand sep = command "Join" (\(StrangState _ bss) -> makeState (BS.intercalate sep bss))
 
 -- Regex command.
 
@@ -170,11 +171,12 @@ makeRegexCommand captureGroups reg = let execOptions = ExecOption { captureGroup
                                          withStringErr = regexCommand <$> compile defaultCompOpt execOptions reg in
                            leftMap (flip newErrorMessage (initialPos "") . Message) withStringErr
 
+
 matchRegex :: Regex -> ByteString -> StrangState [ByteString]
 matchRegex reg str = (makeState . head) $ match reg str
 
 regexCommand :: Regex -> Command ByteString [ByteString]
-regexCommand reg = command (\(StrangState _ str) -> matchRegex reg str)
+regexCommand reg = command "Regex" (\(StrangState _ str) -> matchRegex reg str)
 
 -- Split command parser. Syntax is:
 -- s<char>
@@ -218,7 +220,7 @@ merge :: Either a a -> a
 merge = either id id
 
 collapseError :: Show e => Parser (Either e a) -> Parser a
-collapseError p = p >>= (either (\e -> fail $ shows e "") pure)
+collapseError p = p >>= either (\e -> fail $ shows e "") pure
 
 -- Capturing regex command parser. Syntax is:
 -- c"<regexstuff>"
@@ -226,61 +228,63 @@ collapseError p = p >>= (either (\e -> fail $ shows e "") pure)
 captureRegexParser :: Parser (Command ByteString [ByteString])
 captureRegexParser = collapseError $ makeRegexCommand True <$> (char 'c' *> stringArg)
 
-(<||>) :: Parser (AnyCommand) -> Parser (Command a b) -> Parser (AnyCommand)
-ab <||> cd = ab <|> (fmap Exists cd)
+(<||>) :: Parser AnyCommand -> Parser (Command a b) -> Parser AnyCommand
+ab <||> cd = ab <|> fmap Exists cd
 
 commandParser :: Parser AnyCommand
-commandParser = (parserZero <||> splitParser <||> printParser <||> joinParser <||> noCaptureRegexParser <||> captureRegexParser)
+commandParser = parserZero <||> splitParser <||> printParser <||> joinParser <||> noCaptureRegexParser <||> captureRegexParser
 
 data AnyCommand = forall a b. Exists { runAny :: Command a b }
 
-inTypeAny :: AnyCommand -> UnTy
-inTypeAny Exists { runAny = Command { inType = inTy } } = UnTy inTy
+instance Show AnyCommand where
+  show e@Exists { runAny = c } = name c ++ ":: (" ++ show (inTyAny e) ++ "->" ++ show (outTyAny e) ++ ")"
 
-outTypeAny :: AnyCommand -> UnTy
-outTypeAny Exists { runAny = Command { outType = outTy } } = UnTy outTy
+inTyAny :: AnyCommand -> UnTy
+inTyAny Exists { runAny = Command { inType = inTy } } = UnTy inTy
 
-bracketedCommandParser :: Parser [AnyCommand]
-bracketedCommandParser = char '(' *> ((many1 commandParser) <|> (join <$> many1 bracketedCommandParser)) <* char ')'
+outTyAny :: AnyCommand -> UnTy
+outTyAny Exists { runAny = Command { outType = outTy } } = UnTy outTy
+
+--bracketedCommandParser :: Parser [AnyCommand]
+--bracketedCommandParser = char '(' *> (many1 commandParser <|> (join <$> many1 bracketedCommandParser)) <* char ')'
 
 programParser :: Parser (Mode, [AnyCommand])
-programParser = (modeParser >*< (join <$> many1 bracketedCommandParser)) <* eof
+programParser = (modeParser >*< many1 commandParser) <* eof
 
-composeCommands :: Command b c -> Command a b -> Command a c
-composeCommands bc ab = Command { inType = inType ab
+composeCommands :: Command a b -> Command b c -> Command a c
+composeCommands ab bc = Command { inType = inType ab
                                 , outType = outType bc
-                                , run = run ab >=> run bc }
+                                , run = run ab >=> run bc
+                                , name = "(" ++ name bc ++ " . " ++ name ab ++ ")" }
 
 canCombineWith :: AnyCommand -> AnyCommand -> Bool
-canCombineWith a1 a2 = let inTypeGeneric = (inTypeAny a1 == (UnTy AnyTy)) in
-                        let outTypeGeneric = (outTypeAny a1 == (UnTy AnyTy)) in
-                          False
-
+canCombineWith a1 a2 = let inTypeGeneric = (inTyAny a2 == UnTy AnyTy)
+                           outTypeGeneric = (outTyAny a1 == UnTy AnyTy) in
+                            (outTyAny a2 == inTyAny a1) || inTypeGeneric || outTypeGeneric
 
 -- This is a bad way to do this. I need a way to lift the runtime equality to type-level equality
-combineCommands :: AnyCommand -> AnyCommand -> Maybe AnyCommand
-combineCommands a1 a2 = if (a1 `canCombineWith` a2) then Nothing else Nothing
-{-combineCommands Exists { runAny = f } Exists { runAny = g } = if UnTy (outType f) == UnTy (inType g) then Just $ Exists $ unsafeCoerce $ composeCommands (unsafeCoerce f) (unsafeCoerce g)
-                      else                          Nothing-}
+combineCommands :: AnyCommand -> AnyCommand -> Either String AnyCommand
+combineCommands a1@Exists{ runAny = f } a2@Exists{ runAny = g } = if a1 `canCombineWith` a2 then (Right . Exists) (composeCommands (unsafeCoerce f) (unsafeCoerce g)) else Left $ "Could not unify " ++ show a1 ++ " with " ++ show a2
 
-typecheckCommands :: [AnyCommand] -> Maybe AnyCommand
-typecheckCommands [] = Nothing
+typecheckCommands :: [AnyCommand] -> Either String AnyCommand
+typecheckCommands [] = Right Exists { runAny = Command { run = pure, inType = AnyTy, outType = AnyTy, name = "Identity" } }
 typecheckCommands (x:xs) = foldM combineCommands x xs
 
-commandWithType :: StateTy a -> StateTy b -> AnyCommand -> Maybe (Command a b)
-commandWithType t1 t2 e@(Exists { runAny = Command { run = fun } } ) =
-  if (inTypeAny e == UnTy t1) && (outTypeAny e == UnTy t2) then
-    Just $ Command { run = unsafeCoerce fun
-                    ,inType = t1
-                    ,outType = t2 }
+commandWithType :: StateTy a -> StateTy b -> AnyCommand -> Either String (Command a b)
+commandWithType t1 t2 e@Exists { runAny = c@Command { run = fun } } =
+  if (inTyAny e == UnTy t1) && (outTyAny e == UnTy t2) then
+    Right Command { run = unsafeCoerce fun
+                  , inType = t1
+                  , outType = t2
+                  , name = name c }
   else
-    Nothing
+    Left $ "Could not unify (" ++ show t1 ++ " -> " ++ show t2 ++ ") with " ++ show e
 
-runCommand :: [AnyCommand] -> Maybe (ByteString -> CommandResult ByteString)
-runCommand [] = Nothing
+runCommand :: [AnyCommand] -> Either String (ByteString -> CommandResult ByteString)
+runCommand [] = Left "No command!"
 runCommand cmds = do
-  f <- (run <$> (typecheckCommands cmds >>= (commandWithType StringTy StringTy)))
-  return $ ((<$>) grab) . f . makeState
+  f <- run <$> (typecheckCommands cmds >>= commandWithType StringTy StringTy)
+  return $ (<$>) grab . f . makeState
 
 programInputForMode :: Mode -> IO ByteString
 programInputForMode LineMode = BS.getLine
@@ -300,9 +304,9 @@ parseProgram = parse programParser ""
 
 interpretProgram :: ByteString -> IO ()
 interpretProgram cmd = let programAndModeOrErr = parseProgram cmd
-                           compiledProgramOrErr = (\(mode, cmd) -> (mode, runCommand cmd)) <$> programAndModeOrErr in
+                           compiledProgramOrErr = second runCommand <$> programAndModeOrErr in
                              either printParsingError (\(mode, cmd) ->
-                                ((maybe (return $ pure $ C.pack "Not is compile") (\prog -> prog <$> (programInputForMode mode)) cmd)) >>= printProgramResult)
+                                either (\err -> return $ pure $ C.pack $ "Compilation error: " ++ err) (`fmap` programInputForMode mode) cmd >>= printProgramResult)
                                 compiledProgramOrErr
 
 main :: IO ()
