@@ -45,7 +45,6 @@ stringArg = C.pack <$> surroundedBy (char '"') anyChar where
 charArg :: Parser Char
 charArg = anyChar
 
-
 -- Interpreter state type. Note the recursion in ListState, which is used below
 -- in `cata` to support arbitrarily-nested commands.
 liftCommand :: Command i o -> Command [i] [o]
@@ -53,17 +52,19 @@ liftCommand cmd@Command { commandType = Specified a b, run = f } = cmd { run = t
 liftCommand cmd@Command { commandType = IdLike } = Command { commandType = IdLike, run = traverse $ run cmd, name = name cmd }
 liftCommand cmd@Command { commandType = Constant a, run = f } = cmd { run = traverse f, commandType = Constant (ListTy a) }
 
+-- Compose function types!
+-- IdLike is an identity. (Constant _) is a right zero.
 composeFunTy :: FunTy a b -> FunTy b c -> FunTy a c
 composeFunTy _ (Constant t) = Constant t
 composeFunTy (Constant _) (Specified _ c) = Constant c
 composeFunTy (Specified a _) (Specified _ c) = Specified a c
-composeFunTy a IdLike = a
 composeFunTy IdLike a = a
+composeFunTy a IdLike = a
 
--- Makes a command map over lists. Not sure exactly what the best name is for
--- this yet. Basically, this attempts to run commands at the highest possible
--- level in a nested ListState, and recurses through the levels if it fails.
-
+-- Makes a command map over lists, in the shallowest way possible.
+-- Specifically, attempts to run commands at the highest possible
+-- level in a nested list, and recurses through the levels if it fails.
+-- This is resolved before runtime.
 autocombine :: AnyCommand -> AnyCommand -> Either String AnyCommand
 autocombine e1@Exists { runAny = c1 } e2@Exists { runAny = c2 } = let (ct1, ct2) = (funTyAny e1, funTyAny e2) in
           if canCombineWith ct1 ct2 then combineCommands e1 e2
@@ -71,100 +72,98 @@ autocombine e1@Exists { runAny = c1 } e2@Exists { runAny = c2 } = let (ct1, ct2)
               UnFunTy (Specified _ (ListTy _)) -> trace ("Recursively calling autocombine to unify " ++ show e1 ++ " with " ++ show e2) $ autocombine Exists { runAny = c1 } Exists { runAny = c2 { run = trace "Recursive autocombine" (sequence . map (run c2)), commandType = commandType $ liftCommand c2, name = "Lifted(" ++ name c2 ++ ")" } }
               _ -> Left $ "Could not unify " ++ show e1 ++ " with " ++ show e2
 
+-- Command with any type, name, and implementation.
 commandR :: FunTy a b -> String -> (a -> CommandResult b) -> Command a b
 commandR ty n f = Command { run = f, commandType = ty, name = n }
 
+-- Command with fully specified type, that takes HasParamTy evidence instead of an explicit type.
 commandS :: (HasParamTy a, HasParamTy b) => String -> (a -> CommandResult b) -> Command a b
 commandS = commandR (Specified defParamTy defParamTy)
 
+-- Command with fully specified type, outside of the CommandResult monad.
 command :: (HasParamTy a, HasParamTy b) => String -> (a -> b) -> Command a b
 command n f = commandS n (pure . f)
 
 -- Split command implementation.
-
 splitCommand :: Char -> Command ByteString [ByteString]
 splitCommand = command "Split" . C.split
 
 -- Print command implementation.
-
 printCommand :: ParamTy a -> Command a ByteString
 printCommand inTy = Command { run = \st -> let prant = printTyped inTy st in writer (prant, [prant]), commandType = Specified inTy StringTy, name = "Print" }
 
+-- Actual print implementation.
 printTyped :: ParamTy a -> a -> ByteString
 printTyped StringTy str = str
 printTyped (ListTy t) ts = C.pack "[" `C.append` BS.intercalate (C.pack ",") (fmap (printTyped t) ts) `C.append` C.pack "]"
 
 -- Join command implementation.
-
 joinCommand :: ByteString -> Command [ByteString] ByteString
 joinCommand = command "Join" . BS.intercalate
 
--- Regex command.
+matchRegex :: Regex -> ByteString -> [ByteString]
+matchRegex reg str = head $ match reg str
 
+regexCommand :: Regex -> Command ByteString [ByteString]
+regexCommand = command "Regex" . matchRegex
+
+-- Regex command. Optionally captures groups.
 makeRegexCommand :: Bool -> ByteString -> Either ParseError (Command ByteString [ByteString])
 makeRegexCommand captureGroups reg = let execOptions = ExecOption { captureGroups }
                                          withStringErr = regexCommand <$> compile defaultCompOpt execOptions reg in
                            leftMap (flip newErrorMessage (initialPos "") . Message) withStringErr
 
-regexCommand :: Regex -> Command ByteString [ByteString]
-regexCommand = command "Regex" . matchRegex
-
-matchRegex :: Regex -> ByteString -> [ByteString]
-matchRegex reg str = head $ match reg str
-
 -- Split command parser. Syntax is:
 -- s<char>
-
 splitParser :: Parser (Command ByteString [ByteString])
 splitParser = splitCommand <$> (char 's' *> charArg)
 
 -- Print command parser.
 -- Syntax:   <other commands>p
 -- Appends the current value to the log, converted to a string.
-
 printParser :: Parser (ParamTy a -> Command a ByteString)
 printParser = char 'p' $> printCommand
 
 -- Join command parser.
 -- Syntax:    <other commands>j"delim"
 -- Joins the elements of a list of strings, with a delimiter.
-
 joinParser :: Parser (Command [ByteString] ByteString)
 joinParser = joinCommand <$> (char 'j' *> stringArg)
 
 -- Direction switch command parser.
-
+-- Not implemented.
 directionSwitchParser :: Parser ()
 directionSwitchParser = void $ char '<'
 
 -- Index command parser. Indexes into the farthest outer liststate.
-
+-- Not implemented.
 indexParser :: Parser a
 indexParser = error "index parser not implemented"
 
 -- Non-capturing regex command parser! Syntax is:
 --    r"<regexstuff>"
-
 noCaptureRegexParser :: Parser (Command ByteString [ByteString])
 noCaptureRegexParser = collapseError $ makeRegexCommand False <$> (char 'r' *> stringArg)
 
+-- Collapses an error from an Either into the outer Parser.
 collapseError :: Show e => Parser (Either e a) -> Parser a
 collapseError p = p >>= either (fail . show) pure
 
 -- Capturing regex command parser. Syntax is:
 -- c"<regexstuff>"
-
 captureRegexParser :: Parser (Command ByteString [ByteString])
 captureRegexParser = collapseError $ makeRegexCommand True <$> (char 'c' *> stringArg)
 
+data AnyCommand = forall a b. Exists { runAny :: Command a b }
+
+-- Existentials being tricky. Alternation operator, converting the second operand
+-- to an AnyCommand.
 (<||>) :: Parser AnyCommand -> Parser (Command a b) -> Parser AnyCommand
 ab <||> cd = ab <|> fmap Exists cd
 
 commandParser :: Parser AnyCommand
 commandParser = parserZero <||> splitParser <||> joinParser <||> noCaptureRegexParser <||> captureRegexParser
 -- what do I do with print?
-
-data AnyCommand = forall a b. Exists { runAny :: Command a b }
 
 instance Show AnyCommand where
   show Exists { runAny = c@Command { commandType = ct } } = name c ++ " :: (" ++ show ct ++ ")"
@@ -195,6 +194,7 @@ typecheckCommands :: [AnyCommand] -> Either String AnyCommand
 typecheckCommands [] = Right Exists { runAny = Command { run = pure, commandType = IdLike, name = "Identity" } }
 typecheckCommands (x:xs) = foldM autocombine x xs
 
+-- Returns true iff Commands with the two given UnFunTys could be combined with combineCommands.
 canCombineWith :: UnFunTy -> UnFunTy -> Bool
 canCombineWith (UnFunTy IdLike) _ = True
 canCombineWith _ (UnFunTy IdLike) = True
@@ -214,12 +214,6 @@ withProgramType ac@Exists { runAny = c@Command { run = f } } = case funTyAny ac 
 runCommand :: [AnyCommand] -> Either String (ByteString -> CommandResult ByteString)
 runCommand [] = Left "No command!"
 runCommand cmds = run <$> (typecheckCommands cmds >>= withProgramType)
-
-printProgramResult :: Show a => CommandResult a -> IO ()
-printProgramResult = print
-
-printParsingError :: ParseError -> IO ()
-printParsingError = print
 
 putIn :: Functor m => a -> m b -> m (a, b)
 putIn x = fmap (const x &&& id)
