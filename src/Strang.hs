@@ -22,7 +22,6 @@ import Control.Applicative.Alternative
 import Control.Arrow
 import Unsafe.Coerce
 import Data.List
-import Data.Void
 import Debug.Trace
 
 (>*<) :: Applicative f => f a -> f b -> f (a, b)
@@ -140,7 +139,7 @@ autocombine :: AnyCommand -> AnyCommand -> Either String AnyCommand
 autocombine e1@Exists { runAny = c1 } e2@Exists { runAny = c2 } = let (ct1, ct2) = (funTyAny e1, funTyAny e2) in
           if canCombineWith ct1 ct2 then combineCommands e1 e2
           else case ct1 of
-              UnFunTy (Specified _ (ListTy _)) -> trace ("Recursively calling autocombine to unify " ++ show e1 ++ " with " ++ show e2) $ autocombine Exists { runAny = c1 } Exists { runAny = c2 { run = error "Recursive autocombime" (sequence . map (run c2)), commandType = commandType $ liftCommand c2, name = "Lifted(" ++ name c2 ++ ")" } }
+              UnFunTy (Specified _ (ListTy _)) -> trace ("Recursively calling autocombine to unify " ++ show e1 ++ " with " ++ show e2) $ autocombine Exists { runAny = c1 } Exists { runAny = c2 { run = trace "Recursive autocombine" (sequence . map (run c2)), commandType = commandType $ liftCommand c2, name = "Lifted(" ++ name c2 ++ ")" } }
               _ -> Left $ "Could not unify " ++ show e1 ++ " with " ++ show e2
 
 commandR :: FunTy a b -> String -> (a -> CommandResult b) -> Command a b
@@ -259,7 +258,7 @@ composeCommands ab bc = Command { commandType = composeFunTy (commandType ab) (c
 
 -- This is a bad way to do this. I need a way to lift the runtime equality to type-level equality
 combineCommands :: AnyCommand -> AnyCommand -> Either String AnyCommand
-combineCommands a1@Exists{ runAny = f@Command { commandType = ct1 } } a2@Exists{ runAny = g@Command { commandType = ct2 } } = if UnFunTy ct1 `canCombineWith` UnFunTy ct2 then (Right . Exists) (composeCommands (error "combineCommands " f) (error "combineCommands g" g)) else Left $ "Could not unify " ++ show a1 ++ " with " ++ show a2
+combineCommands a1@Exists{ runAny = f@Command { commandType = ct1 } } a2@Exists{ runAny = g@Command { commandType = ct2 } } = if UnFunTy ct1 `canCombineWith` UnFunTy ct2 then (Right . Exists) (composeCommands (unsafeCoerce f) (unsafeCoerce g)) else Left $ "Could not unify " ++ show a1 ++ " with " ++ show a2
 
 typecheckCommands :: [AnyCommand] -> Either String AnyCommand
 typecheckCommands [] = Right Exists { runAny = Command { run = pure, commandType = IdLike, name = "Identity" } }
@@ -268,7 +267,7 @@ typecheckCommands (x:xs) = foldM autocombine x xs
 canCombineWith :: UnFunTy -> UnFunTy -> Bool
 canCombineWith (UnFunTy IdLike) _ = True
 canCombineWith _ (UnFunTy IdLike) = True
-canCombineWith (UnFunTy (Specified a b)) (UnFunTy (Specified c d)) = UnTy a == UnTy c && UnTy b == UnTy d
+canCombineWith (UnFunTy (Specified _ b)) (UnFunTy (Specified c _)) = UnTy b == UnTy c
 canCombineWith _ (UnFunTy (Constant _)) = True
 canCombineWith (UnFunTy (Constant b)) (UnFunTy (Specified _ a)) = UnTy a == UnTy b
 
@@ -312,5 +311,3 @@ main :: IO ()
 main = do
    program <- BS.getLine
    interpretProgram program
-
-d = [| "" |]
