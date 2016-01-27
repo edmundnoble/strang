@@ -5,12 +5,10 @@ build-type: Simple
 license: AllRightsReserved
 synopsis: Interpreter
 description:
-    .Hallo
-    .
-    .
+    .Interpreter for a weakly- and statically-typed string-manipulation language.
 
 executable str
-    main-is: Strang.hs
+    main-is: Main.hs
     build-depends:
         array -any,
         base -any,
