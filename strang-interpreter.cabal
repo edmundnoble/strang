@@ -28,3 +28,4 @@ executable str
     default-language: Haskell2010
     default-extensions: MultiParamTypeClasses FlexibleInstances
     hs-source-dirs: src
+    GHC-Options: -W -O

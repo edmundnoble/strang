@@ -12,29 +12,18 @@ import Data.ByteString (ByteString)
 import Text.Parsec.ByteString
 import Text.Parsec.Prim hiding ((<|>))
 import Text.ParserCombinators.Parsec.Char (char, anyChar)
-import Text.ParserCombinators.Parsec.Prim (parse)
 import Text.Parsec.Combinator
 import Text.Parsec.Error
 import Text.Parsec.Pos (initialPos)
-import Data.Monoid
-import Data.ByteString.Internal (c2w, w2c)
 import qualified Data.ByteString.Char8 as C
 import Data.Functor
 import Control.Monad.Writer.Strict hiding (sequence)
-import Data.Functor.Identity
 import Control.Applicative.Alternative
-import Data.Either.Combinators
-import System.Environment
-import Safe
-import Data.Traversable hiding (sequence)
-import Control.Monad.Reader hiding (sequence)
 import Control.Arrow
-import Data.Array
-import Data.Default
 import Unsafe.Coerce
 import Data.List
-import Debug.Trace
 import Data.Void
+import Debug.Trace
 
 (>*<) :: Applicative f => f a -> f b -> f (a, b)
 (>*<) = liftA2 (,)
@@ -68,18 +57,14 @@ charArg = anyChar
 data ParamTy a where
     StringTy :: ParamTy ByteString
     ListTy :: ParamTy a -> ParamTy [a]
-    UnitTy :: ParamTy ()
-    AnyTy :: ParamTy ()
-
 
 data FunTy a b where
     Specified :: ParamTy a -> ParamTy b -> FunTy a b
-    Forgetful :: ParamTy b -> FunTy a b
+    Constant :: ParamTy b -> FunTy a b
     IdLike :: FunTy a a
 
 data UnTy = forall a. UnTy (ParamTy a)
 data UnFunTy = forall a b. UnFunTy (FunTy a b)
-data UnFun = forall a b. UnFun (a -> b)
 
 instance Show UnTy where
   show (UnTy t) = "ANON: " ++ show t
@@ -89,27 +74,23 @@ instance Show UnFunTy where
 
 instance Show (FunTy a b) where
   show (Specified a b) = "S (" ++ show a ++ " -> " ++ show b ++ ")"
-  show (Forgetful b) = "S (a -> " ++ show b ++ ")"
+  show (Constant b) = "S (a -> " ++ show b ++ ")"
   show IdLike = "S (a -> a)"
 
 instance Eq UnTy where
   (==) (UnTy StringTy) (UnTy StringTy) = True
-  (==) (UnTy UnitTy) (UnTy UnitTy) = True
   (==) (UnTy (ListTy t)) (UnTy (ListTy y)) = UnTy t == UnTy y
-  (==) (UnTy AnyTy) (UnTy AnyTy) = True
   (==) _ _ = False
 
 instance Eq UnFunTy where
   (UnFunTy IdLike) == (UnFunTy IdLike) = True
-  (UnFunTy (Forgetful a)) == (UnFunTy (Forgetful b)) = UnTy a == UnTy b
+  (UnFunTy (Constant a)) == (UnFunTy (Constant b)) = UnTy a == UnTy b
   (UnFunTy (Specified a b)) == (UnFunTy (Specified c d)) = (UnTy a == UnTy c) && (UnTy b == UnTy d)
   (UnFunTy _) == (UnFunTy _) = False
 
 instance Show (ParamTy a) where
     show StringTy = "String"
     show (ListTy ty) = "List[" ++ show ty ++ "]"
-    show UnitTy = "Unit"
-    show AnyTy = "Any"
 
 class HasParamTy a where
   defParamTy :: ParamTy a
@@ -120,9 +101,6 @@ class HasFunTy a b where
 instance HasParamTy ByteString where
   defParamTy = StringTy
 
-instance HasParamTy () where
-  defParamTy = UnitTy
-
 instance HasParamTy a => HasParamTy [a] where
   defParamTy = ListTy defParamTy
 
@@ -132,17 +110,8 @@ instance (HasParamTy a, HasParamTy b) => HasFunTy a b where
 data StrangState a where
   StrangState :: (HasParamTy a, Show a) => a -> StrangState a
 
-makeState :: (Show a, HasParamTy a) => a -> StrangState a
-makeState = StrangState
-
 instance Show (StrangState a) where
   show (StrangState s) = show s
-
-grab :: StrangState a -> a
-grab (StrangState a) = a
-
-typeOf :: StrangState a -> ParamTy a
-typeOf ss@(StrangState _) = defParamTy
 
 type CommandResult r = Writer [ByteString] r
 
@@ -154,11 +123,11 @@ data Command i o = Command { run     :: i -> CommandResult o
 liftCommand :: Command i o -> Command [i] [o]
 liftCommand cmd@Command { commandType = Specified a b, run = f } = cmd { run = traverse f, commandType = Specified (ListTy a) (ListTy b) }
 liftCommand cmd@Command { commandType = IdLike } = Command { commandType = IdLike, run = traverse $ run cmd, name = name cmd }
-liftCommand cmd@Command { commandType = Forgetful a, run = f } = cmd { run = traverse f, commandType = Forgetful (ListTy a) }
+liftCommand cmd@Command { commandType = Constant a, run = f } = cmd { run = traverse f, commandType = Constant (ListTy a) }
 
 composeFunTy :: FunTy a b -> FunTy b c -> FunTy a c
-composeFunTy _ (Forgetful t) = Forgetful t
-composeFunTy (Forgetful _) (Specified _ c) = Forgetful c
+composeFunTy _ (Constant t) = Constant t
+composeFunTy (Constant _) (Specified _ c) = Constant c
 composeFunTy (Specified a _) (Specified _ c) = Specified a c
 composeFunTy a IdLike = a
 composeFunTy IdLike a = a
@@ -168,21 +137,19 @@ composeFunTy IdLike a = a
 -- level in a nested ListState, and recurses through the levels if it fails.
 
 autocombine :: AnyCommand -> AnyCommand -> Either String AnyCommand
-autocombine = undefined {-c1@Exists { runAny = Command { run = f } } c2@Exists { runAny = cmd@Command { run = g } } =
-  let (ity1, ity2) = (inTyAny c1, inTyAny c2)
-      (oty1, oty2) = (outTyAny c1, outTyAny c2) in
-          if canCombineWith oty1 ity2 then combineCommands c1 c2
-          else case oty1 of
-              UnTy (ListTy t1) -> trace ("Recursively calling autocombine to unify " ++ show c1 ++ " with " ++ show c2) $ autocombine c1 Exists { runAny = cmd { run = unsafeCoerce (sequence . map g), commandType = commandType $ liftCommand cmd, name = "Lifted(" ++ name cmd ++ ")" } }
-              otherwise -> Left $ "Could not unify " ++ show c1 ++ " with " ++ show c2-}
+autocombine e1@Exists { runAny = c1 } e2@Exists { runAny = c2 } = let (ct1, ct2) = (funTyAny e1, funTyAny e2) in
+          if canCombineWith ct1 ct2 then combineCommands e1 e2
+          else case ct1 of
+              UnFunTy (Specified _ (ListTy _)) -> trace ("Recursively calling autocombine to unify " ++ show e1 ++ " with " ++ show e2) $ autocombine Exists { runAny = c1 } Exists { runAny = c2 { run = error "Recursive autocombime" (sequence . map (run c2)), commandType = commandType $ liftCommand c2, name = "Lifted(" ++ name c2 ++ ")" } }
+              _ -> Left $ "Could not unify " ++ show e1 ++ " with " ++ show e2
 
 commandR :: FunTy a b -> String -> (a -> CommandResult b) -> Command a b
 commandR ty n f = Command { run = f, commandType = ty, name = n }
 
-commandS :: (Default (ParamTy a), Default (ParamTy b)) => String -> (a -> CommandResult b) -> Command a b
-commandS = commandR (Specified def def)
+commandS :: (HasParamTy a, HasParamTy b) => String -> (a -> CommandResult b) -> Command a b
+commandS = commandR (Specified defParamTy defParamTy)
 
-command :: (Default (ParamTy a), Default (ParamTy b)) => String -> (a -> b) -> Command a b
+command :: (HasParamTy a, HasParamTy b) => String -> (a -> b) -> Command a b
 command n f = commandS n (pure . f)
 
 -- Split command implementation.
@@ -192,11 +159,10 @@ splitCommand = command "Split" . C.split
 
 -- Print command implementation.
 
-printCommand :: ParamTy a -> Command a ()
-printCommand ty = Command { run = \st -> writer ((), [printTyped ty st]), commandType = Forgetful UnitTy }
+printCommand :: ParamTy a -> Command a ByteString
+printCommand inTy = Command { run = \st -> let prant = printTyped inTy st in writer (prant, [prant]), commandType = Specified inTy StringTy, name = "Print" }
 
 printTyped :: ParamTy a -> a -> ByteString
-printTyped UnitTy _ = C.pack "()"
 printTyped StringTy str = str
 printTyped (ListTy t) ts = C.pack "[" `C.append` BS.intercalate (C.pack ",") (fmap (printTyped t) ts) `C.append` C.pack "]"
 
@@ -230,7 +196,7 @@ splitParser = splitCommand <$> (char 's' *> charArg)
 
 -- Basically it appends the current value to the log.
 
-printParser :: Parser (ParamTy a -> Command a ())
+printParser :: Parser (ParamTy a -> Command a ByteString)
 printParser = char 'p' $> printCommand
 
 -- Join command parser. Joins the elements of a list of strings. Syntax is:
@@ -291,38 +257,33 @@ composeCommands ab bc = Command { commandType = composeFunTy (commandType ab) (c
                                 , run = run ab >=> run bc
                                 , name = "(" ++ name bc ++ " . " ++ name ab ++ ")" }
 
-canCombineWith :: UnTy -> UnTy -> Bool
-canCombineWith a1 a2 = let inTypeGeneric = (a2 == UnTy AnyTy)
-                           outTypeGeneric = (a1 == UnTy AnyTy) in
-                            (a2 == a1) || inTypeGeneric || outTypeGeneric
-
 -- This is a bad way to do this. I need a way to lift the runtime equality to type-level equality
-{-combineCommands :: AnyCommand -> AnyCommand -> Either String AnyCommand
-combineCommands a1@Exists{ runAny = f@Command { commandType = ct1 } } a2@Exists{ runAny = g@Command { commandType = ct2 } } = if UnFunTy ct1 `canCombineWith` UnFunTy ct2 then (Right . Exists) (composeCommands f g) else Left $ "Could not unify " ++ show a1 ++ " with " ++ show a2-}
+combineCommands :: AnyCommand -> AnyCommand -> Either String AnyCommand
+combineCommands a1@Exists{ runAny = f@Command { commandType = ct1 } } a2@Exists{ runAny = g@Command { commandType = ct2 } } = if UnFunTy ct1 `canCombineWith` UnFunTy ct2 then (Right . Exists) (composeCommands (error "combineCommands " f) (error "combineCommands g" g)) else Left $ "Could not unify " ++ show a1 ++ " with " ++ show a2
 
 typecheckCommands :: [AnyCommand] -> Either String AnyCommand
 typecheckCommands [] = Right Exists { runAny = Command { run = pure, commandType = IdLike, name = "Identity" } }
 typecheckCommands (x:xs) = foldM autocombine x xs
 
-canUnify :: UnFunTy -> UnFunTy -> Bool
-canUnify (UnFunTy (Specified a b)) (UnFunTy (Specified c d)) = UnTy a == UnTy c && UnTy b == UnTy d
-canUnify (UnFunTy IdLike) (UnFunTy (Specified a b)) = UnTy a == UnTy b
-canUnify (UnFunTy (Specified a b)) (UnFunTy IdLike) = UnTy a == UnTy b
+canCombineWith :: UnFunTy -> UnFunTy -> Bool
+canCombineWith (UnFunTy IdLike) _ = True
+canCombineWith _ (UnFunTy IdLike) = True
+canCombineWith (UnFunTy (Specified a b)) (UnFunTy (Specified c d)) = UnTy a == UnTy c && UnTy b == UnTy d
+canCombineWith _ (UnFunTy (Constant _)) = True
+canCombineWith (UnFunTy (Constant b)) (UnFunTy (Specified _ a)) = UnTy a == UnTy b
 
-commandWithType :: FunTy a b -> AnyCommand -> Either String (Command a b)
-commandWithType ct e@Exists { runAny = c@Command { run = fun } } =
-  if canUnify (UnFunTy ct) (UnFunTy (commandType c)) then
-    Right Command { run = unsafeCoerce fun
-                  , commandType = ct
-                  , name = name c }
-  else
-    Left $ "Could not unify " ++ show ct ++ " with " ++ show e
+withProgramType :: AnyCommand -> Either String (Command ByteString ByteString)
+withProgramType ac@Exists { runAny = c@Command { run = f, commandType = funTy, name = n } } = case funTyAny ac of
+                        (UnFunTy (Specified at ot)) -> if
+                          UnTy at == UnTy StringTy
+                          then Right $ composeCommands (unsafeCoerce c) (printCommand ot)
+                          else Left $ "Expected program to input type ByteString, found input type " ++ show at
+                        (UnFunTy IdLike) -> Right Command { run = unsafeCoerce f, commandType = IdLike, name = n }
+                        (UnFunTy (Constant ot)) -> Right $ composeCommands (unsafeCoerce c) (printCommand ot)
 
-runCommand :: [AnyCommand] -> Either String (ByteString -> [ByteString])
+runCommand :: [AnyCommand] -> Either String (ByteString -> CommandResult ByteString)
 runCommand [] = Left "No command!"
-runCommand cmds = do
-  f <- run <$> (typecheckCommands (cmds) >>= commandCanTake StringTy)
-  return $ execWriter . f
+runCommand cmds = run <$> (typecheckCommands cmds >>= withProgramType)
 
 programInputForMode :: Mode -> IO ByteString
 programInputForMode LineMode = BS.getLine
