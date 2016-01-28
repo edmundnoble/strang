@@ -171,15 +171,15 @@ instance Show AnyCommand where
 funTyAny :: AnyCommand -> UnFunTy
 funTyAny Exists { runAny = c } = (UnFunTy . commandType) c
 
---bracketedCommandParser :: Parser [AnyCommand]
---bracketedCommandParser = char '(' *> (many1 commandParser <|> (join <$> many1 bracketedCommandParser)) <* char ')'
+compoundCommandParser :: Parser [AnyCommand]
+compoundCommandParser = (join <$> (try (char '(') *> many1 compoundCommandParser <* try (char ')'))) <|> many1 commandParser
 
 programParser :: Parser (InputMode, [AnyCommand])
 programParser = do
-  m <- modeParser
-  cs <- many1 commandParser
+  mode <- modeParser
+  commands <- compoundCommandParser
   eof
-  return (m, cs)
+  return (mode, commands)
 
 composeCommands :: Command a b -> Command b c -> Command a c
 composeCommands ab bc = Command { commandType = composeFunTy (commandType ab) (commandType bc)
@@ -205,7 +205,7 @@ canCombineWith (UnFunTy (Constant b)) (UnFunTy (Specified _ a)) = UnTy a == UnTy
 withProgramType :: AnyCommand -> Either String (Command ByteString ByteString)
 withProgramType ac@Exists { runAny = c@Command { run = f } } = case funTyAny ac of
                         (UnFunTy (Specified at ot)) -> if
-                          UnTy at == UnTy StringTy
+                          UnTy at == UnTy StringTy -- can I make this introduce an evidence term?
                           then Right $ composeCommands (unsafeCoerce c) (printCommand ot)
                           else Left $ "Expected program to have input type ByteString, found input type " ++ show at
                         (UnFunTy IdLike) -> Right c { run = unsafeCoerce f, commandType = IdLike }
