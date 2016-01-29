@@ -19,7 +19,6 @@ import Control.Applicative.Alternative
 import Control.Arrow
 import Unsafe.Coerce
 import Data.List
-import Debug.Trace
 import Strang.Types
 
 leftMap :: (a -> b) -> Either a c -> Either b c
@@ -66,10 +65,10 @@ composeFunTy a IdLike = a
 -- level in a nested list, and recurses through the levels if it fails.
 -- This is resolved before runtime.
 autocombine :: AnyCommand -> AnyCommand -> Either String AnyCommand
-autocombine e1@Exists { runAny = c1 } e2@Exists { runAny = c2 } = let (ct1, ct2) = (funTyAny e1, funTyAny e2) in
+autocombine e1 e2@Exists { runAny = c2 } = let (ct1, ct2) = (funTyAny e1, funTyAny e2) in
           if canCombineWith ct1 ct2 then combineCommands e1 e2
           else case ct1 of
-              UnFunTy (Specified _ (ListTy _)) -> trace ("Recursively calling autocombine to unify " ++ show e1 ++ " with " ++ show e2) $ autocombine Exists { runAny = c1 } Exists { runAny = c2 { run = trace "Recursive autocombine" (sequence . map (run c2)), commandType = commandType $ liftCommand c2, name = "Lifted(" ++ name c2 ++ ")" } }
+              UnFunTy (Specified _ (ListTy _)) -> autocombine e1 Exists { runAny = c2 { run = sequence . map (run c2), commandType = commandType $ liftCommand c2, name = "Lifted(" ++ name c2 ++ ")" } }
               _ -> Left $ "Could not unify " ++ show e1 ++ " with " ++ show e2
 
 -- Command with any type, name, and implementation.
