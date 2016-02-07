@@ -5,17 +5,10 @@ module Strang.Commands(splitCommand, printCommand, joinCommand, collapseCommands
 import qualified Data.Text as T
 import Data.Text (Text)
 import Data.Text.ICU hiding (ParseError,find,span)
-import qualified Data.Text.ICU as I (ParseError,find,span)
-import Data.Functor
+import qualified Data.Text.ICU as I (span)
 import Control.Monad.Writer.Strict hiding (sequence)
-import Control.Arrow
 import Unsafe.Coerce
-import Data.List hiding (span)
 import Strang.Types
-import Text.Parsec.Prim hiding ((<|>))
-import Text.Parsec.Text
-import Text.ParserCombinators.Parsec.Char (char, anyChar)
-import Text.Parsec.Combinator
 import Text.Parsec.Error
 import Text.Parsec.Pos (initialPos)
 
@@ -67,7 +60,9 @@ splitCommand ch = command "Split" $ T.split (== ch)
 
 -- Print command implementation.
 printCommand :: ParamTy a -> Command a Text
-printCommand inTy = Command { runCommand = \st -> let prant = printTyped inTy st in writer (prant, [prant]), commandType = Specified inTy StringTy, commandName = "Print" }
+printCommand inTy = Command { runCommand = \st -> let p = printTyped inTy st in writer (p, [p])
+                            , commandType = Specified inTy StringTy
+                            , commandName = "Print" }
 
 -- Actual print implementation.
 printTyped :: ParamTy a -> a -> Text
@@ -81,7 +76,7 @@ joinCommand = command "Join" . T.intercalate
 replaceRegex :: Regex -> Text -> Text -> Text
 replaceRegex regexFind replace input = case findAll regexFind input of
                                     [] -> input -- short circuit
-                                    xs -> foldr (\m t -> I.span m <> replace <> t) T.empty xs
+                                    xs -> foldr (\m t -> I.span m <> replace <> t) T.empty xs -- whoop
 
 regexCommand :: Regex -> Text -> Command Text Text
 regexCommand regexFind regexReplace = command "ReplaceRegex" $ replaceRegex regexFind regexReplace
