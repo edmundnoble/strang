@@ -1,9 +1,9 @@
 module Main (main) where
 
 import Strang.Interpreter
-import qualified Data.ByteString as BS
+import qualified Data.Text as T
 
 main :: IO ()
 main = do
-   program <- BS.getLine
+   program <- T.pack <$> getLine
    interpretProgram program

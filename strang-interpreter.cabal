@@ -12,6 +12,8 @@ executable str
     build-depends:
         array -any,
         base -any,
+        text -any,
+        text-icu -any,
         bytestring -any,
         either -any,
         monadplus -any,

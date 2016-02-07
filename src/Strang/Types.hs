@@ -1,17 +1,22 @@
 {-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds ,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Safe,ExistentialQuantification #-}
 
-module Strang.Types (ParamTy(..),FunTy(..),UnTy(..),UnFunTy(..),HasParamTy(..),HasFunTy(..),Command(..),CommandResult) where
+module Strang.Types (ParamTy(..),FunTy(..),AnyCommand(..),UnTy(..)
+                    ,UnFunTy(..),HasParamTy(..),HasFunTy(..)
+                    ,Command(..),CommandResult,InputMode,funTyAny,) where
 
-import Data.ByteString (ByteString)
+import Data.Text (Text)
 import Control.Monad.Writer.Strict hiding (sequence)
 
+ -- Strang has two builtin input modes: line mode and text mode.
+type InputMode = IO [Text]
+
 data ParamTy a where
-    StringTy :: ParamTy ByteString
+    StringTy :: ParamTy Text
     ListTy :: ParamTy a -> ParamTy [a]
 
 data FunTy a b where
-    Specified :: ParamTy a -> ParamTy b -> FunTy a b
-    Constant :: ParamTy b -> FunTy a b
+    Specified :: forall a b. ParamTy a -> ParamTy b -> FunTy a b
+    Constant :: forall a b. ParamTy b -> FunTy a b
     IdLike :: forall a. FunTy a a
 
 data UnTy = forall a. UnTy (ParamTy a)
@@ -49,7 +54,7 @@ class HasParamTy a where
 class HasFunTy a b where
   defFunTy :: FunTy a b
 
-instance HasParamTy ByteString where
+instance HasParamTy Text where
   defParamTy = StringTy
 
 instance HasParamTy a => HasParamTy [a] where
@@ -58,9 +63,18 @@ instance HasParamTy a => HasParamTy [a] where
 instance (HasParamTy a, HasParamTy b) => HasFunTy a b where
   defFunTy = Specified defParamTy defParamTy
 
-type CommandResult r = Writer [ByteString] r
+type CommandResult r = Writer [Text] r
 
 -- Command type. Basically a function between states, with runtime type info and a log.
-data Command i o = Command { run     :: i -> CommandResult o
+data Command i o = Command { runCommand     :: i -> CommandResult o
                            , commandType :: FunTy i o
-                           , name :: String }
+                           , commandName :: String }
+
+-- Existential command.
+data AnyCommand = forall a b. Exists { runAny :: Command a b }
+
+instance Show AnyCommand where
+  show Exists { runAny = c@Command { commandType = ct } } = commandName c ++ " :: (" ++ show ct ++ ")"
+
+funTyAny :: AnyCommand -> UnFunTy
+funTyAny Exists { runAny = c } = (UnFunTy . commandType) c
