@@ -1,8 +1,8 @@
-{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds ,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Safe,ExistentialQuantification #-}
+{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Safe,ExistentialQuantification #-}
 
-module Strang.Types (ParamTy(..),FunTy(..),AnyCommand(..),UnTy(..)
-                    ,UnFunTy(..),HasParamTy(..),HasFunTy(..)
-                    ,Command(..),CommandResult,InputMode,funTyAny,) where
+module Strang.Types (ParamTy(..),AnyCommand(..),UnTy(..)
+                    ,HasParamTy(..),Command(..),CommandResult
+                    ,InputMode,runCommand,commandName) where
 
 import Data.Text (Text)
 import Control.Monad.Writer.Strict hiding (sequence)
@@ -14,35 +14,15 @@ data ParamTy a where
     StringTy :: ParamTy Text
     ListTy :: ParamTy a -> ParamTy [a]
 
-data FunTy a b where
-    Specified :: forall a b. ParamTy a -> ParamTy b -> FunTy a b
-    Constant :: forall a b. ParamTy b -> FunTy a b
-    IdLike :: forall a. FunTy a a
-
 data UnTy = forall a. UnTy (ParamTy a)
-data UnFunTy = forall a b. UnFunTy (FunTy a b)
 
 instance Show UnTy where
-  show (UnTy t) = "ANON: " ++ show t
-
-instance Show UnFunTy where
-  show (UnFunTy t) = "ANON: " ++ show t
-
-instance Show (FunTy a b) where
-  show (Specified a b) = "S (" ++ show a ++ " -> " ++ show b ++ ")"
-  show (Constant b) = "S (a -> " ++ show b ++ ")"
-  show IdLike = "S (a -> a)"
+  show (UnTy t) = show t
 
 instance Eq UnTy where
   (==) (UnTy StringTy) (UnTy StringTy) = True
   (==) (UnTy (ListTy t)) (UnTy (ListTy y)) = UnTy t == UnTy y
   (==) _ _ = False
-
-instance Eq UnFunTy where
-  (UnFunTy IdLike) == (UnFunTy IdLike) = True
-  (UnFunTy (Constant a)) == (UnFunTy (Constant b)) = UnTy a == UnTy b
-  (UnFunTy (Specified a b)) == (UnFunTy (Specified c d)) = (UnTy a == UnTy c) && (UnTy b == UnTy d)
-  (UnFunTy _) == (UnFunTy _) = False
 
 instance Show (ParamTy a) where
     show StringTy = "String"
@@ -51,30 +31,38 @@ instance Show (ParamTy a) where
 class HasParamTy a where
   defParamTy :: ParamTy a
 
-class HasFunTy a b where
-  defFunTy :: FunTy a b
-
 instance HasParamTy Text where
   defParamTy = StringTy
 
 instance HasParamTy a => HasParamTy [a] where
   defParamTy = ListTy defParamTy
 
-instance (HasParamTy a, HasParamTy b) => HasFunTy a b where
-  defFunTy = Specified defParamTy defParamTy
-
 type CommandResult r = Writer [Text] r
 
--- Command type. Basically a function between states, with runtime type info and a log.
-data Command i o = Command { runCommand     :: i -> CommandResult o
-                           , commandType :: FunTy i o
-                           , commandName :: String }
+-- Command type. Basically a function between states, with type info and a log.
+data Command i o where
+  IdLike :: { runIdLike :: forall a. a -> CommandResult a
+            , idLikeName :: String } -> Command i i
+  Specified :: { runSpecified :: i -> CommandResult o
+            , inTy :: ParamTy i
+            , outTy :: ParamTy o
+            , specifiedName :: String } -> Command i o
+
+commandName :: Command i o -> String
+commandName IdLike { idLikeName = n } = n
+commandName Specified { specifiedName = n } = n
+
+runCommand :: Command i o -> i -> CommandResult o
+runCommand IdLike {runIdLike = f} = f
+runCommand Specified {runSpecified = f} = f
 
 -- Existential command.
 data AnyCommand = forall a b. Exists { runAny :: Command a b }
 
+-- TODO: Rewrite show instance prettier
 instance Show AnyCommand where
-  show Exists { runAny = c@Command { commandType = ct } } = commandName c ++ " :: (" ++ show ct ++ ")"
+  show Exists { runAny = c } = show c
 
-funTyAny :: AnyCommand -> UnFunTy
-funTyAny Exists { runAny = c } = (UnFunTy . commandType) c
+instance Show (Command i o) where
+  show IdLike {idLikeName = n} = n
+  show Specified {specifiedName = n} = n

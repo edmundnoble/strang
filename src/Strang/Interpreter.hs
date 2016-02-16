@@ -15,11 +15,11 @@ putIn :: Functor m => a -> m b -> m (a, b)
 putIn x = fmap (const x &&& id)
 
 parseProgram :: Text -> Either String (InputMode, [AnyCommand])
-parseProgram pgm = leftMap show (parse programParser "" pgm)
+parseProgram pgm = leftMap (\e -> "Parsing error: " ++ show e) (parse programParser "" pgm)
 
 interpretProgram :: Text -> IO ()
 interpretProgram cmd = let programAndModeOrErr = parseProgram cmd
-                           compiledProgramOrErr :: Either String (InputMode, Text -> Text)
-                           compiledProgramOrErr = programAndModeOrErr >>= (\(m, c) -> putIn m ((\f -> foldl' T.append T.empty . f) <$> collapseCommands c))
+                           composedProgramOrErr :: Either String (InputMode, Text -> Text)
+                           composedProgramOrErr = programAndModeOrErr >>= (\(m, c) -> putIn m ((\f -> foldl' T.append T.empty . f) <$> collapseCommands c))
                            errorHandling err = putStrLn $ "Compilation error: " ++ err
-                           in either errorHandling (\(mode, cmd) -> mode >>= (sequence_ . fmap (print . cmd))) compiledProgramOrErr
+                           in either errorHandling (\(mode, cmd) -> mode >>= (sequence_ . fmap (print . cmd))) composedProgramOrErr

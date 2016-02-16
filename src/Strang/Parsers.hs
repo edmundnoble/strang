@@ -22,21 +22,16 @@ modeParser = consumingParser <|> pure (pure . T.pack <$> getLine) where
 
 -- This is for passing strings to commands.
 stringArg :: Parser Text
-stringArg = T.pack <$> surroundedBy (char '"') anyChar where
+stringArg = T.pack <$> surroundedBy (char '/') anyChar where
                 surroundedBy q p = q *> manyTill p (try q)
 
 twoStringArgs :: Parser (Text, Text)
 twoStringArgs = char '/' *> let p = T.pack <$> manyTill anyChar (try $ char '/') in p >*< p
 
--- This is for passing single characters to commands.
-
-charArg :: Parser Char
-charArg = anyChar
-
 -- Split command parser. Syntax is:
 -- s<char>
 splitParser :: Parser (Command Text [Text])
-splitParser = splitCommand <$> (char 's' *> charArg)
+splitParser = splitCommand <$> (char 's' *> stringArg)
 
 -- Join command parser.
 -- Syntax:    <other commands>j"delim"
@@ -73,7 +68,7 @@ captureRegexParser :: Parser (Command Text [Text])
 captureRegexParser = collapseError $ makeRegexCommand True <$> (char 'c' *> stringArg)
 -}
 
--- Existentials being tricky. Alternation operator, converting the second operand
+-- Existentials being tricky. Parser alternation operator, converting the second operand
 -- to an AnyCommand.
 (<||>) :: Parser AnyCommand -> Parser (Command a b) -> Parser AnyCommand
 ab <||> cd = ab <|> fmap Exists cd
