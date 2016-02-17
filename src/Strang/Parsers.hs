@@ -71,7 +71,7 @@ captureRegexParser = collapseError $ makeRegexCommand True <$> (char 'c' *> stri
 -- Existentials being tricky. Parser alternation operator, converting the second operand
 -- to an AnyCommand.
 (<||>) :: Parser AnyCommand -> Parser (Command a b) -> Parser AnyCommand
-ab <||> cd = ab <|> fmap Exists cd
+ab <||> cd = ab <|> fmap AnyCommand cd
 
 commandParser :: Parser AnyCommand
 commandParser = parserZero <||> splitParser <||> joinParser <||> replaceRegexParser -- <||> captureRegexParser

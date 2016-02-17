@@ -2,7 +2,7 @@
 
 module Strang.Types (ParamTy(..),AnyCommand(..),UnTy(..)
                     ,HasParamTy(..),Command(..),CommandResult
-                    ,InputMode,runCommand,commandName) where
+                    ,InputMode) where
 
 import Data.Text (Text)
 import Control.Monad.Writer.Strict hiding (sequence)
@@ -39,30 +39,22 @@ instance HasParamTy a => HasParamTy [a] where
 
 type CommandResult r = Writer [Text] r
 
--- Command type. Basically a function between states, with type info and a log.
+-- Command type.
 data Command i o where
-  IdLike :: { runIdLike :: forall a. a -> CommandResult a
-            , idLikeName :: String } -> Command i i
-  Specified :: { runSpecified :: i -> CommandResult o
-            , inTy :: ParamTy i
-            , outTy :: ParamTy o
-            , specifiedName :: String } -> Command i o
+  Command :: { runCommand :: i -> CommandResult o
+             , inTy :: ParamTy i
+             , outTy :: ParamTy o
+             , commandName :: String } -> Command i o
 
-commandName :: Command i o -> String
-commandName IdLike { idLikeName = n } = n
-commandName Specified { specifiedName = n } = n
-
-runCommand :: Command i o -> i -> CommandResult o
-runCommand IdLike {runIdLike = f} = f
-runCommand Specified {runSpecified = f} = f
+idLike :: HasParamTy i => (forall a. a -> CommandResult a) -> String -> Command i i
+idLike f n = Command { runCommand = f, inTy = defParamTy, outTy = defParamTy, commandName = n  }
 
 -- Existential command.
-data AnyCommand = forall a b. Exists { runAny :: Command a b }
+data AnyCommand = forall a b. AnyCommand { runAny :: Command a b }
 
 -- TODO: Rewrite show instance prettier
 instance Show AnyCommand where
-  show Exists { runAny = c } = show c
+  show AnyCommand { runAny = c } = show c
 
 instance Show (Command i o) where
-  show IdLike {idLikeName = n} = n
-  show Specified {specifiedName = n} = n
+  show = commandName
