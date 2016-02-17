@@ -1,6 +1,6 @@
 {-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Trustworthy,ExistentialQuantification #-}
 
-module Strang.Commands(splitCommand,printCommand,joinCommand,collapseCommands,leftMap,makeReplaceRegexCommand) where
+module Strang.Commands(splitCommand,printCommand,joinCommand,collapseCommands,leftMap,makeReplaceRegexCommand,idLike) where
 
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -26,6 +26,10 @@ r@(Right _) `orElse` (Left _) = r
 -- in `cata` to support arbitrarily-nested command mapping.
 liftCommand :: Command i o -> Command [i] [o]
 liftCommand cmd@Command { inTy = a, outTy = b, runCommand = f } = cmd { runCommand = traverse f, inTy = ListTy a, outTy = ListTy b }
+
+-- Helper function for polymorphic functions.
+idLike :: (forall a. a -> CommandResult a) -> String -> ParamTy i -> Command i i
+idLike f n ty = Command { runCommand = f, inTy = ty, outTy = ty, commandName = n  }
 
 -- Makes a command map over lists, in the shallowest way possible.
 -- Specifically, attempts to run commands at the highest possible

@@ -46,9 +46,6 @@ data Command i o where
              , outTy :: ParamTy o
              , commandName :: String } -> Command i o
 
-idLike :: HasParamTy i => (forall a. a -> CommandResult a) -> String -> Command i i
-idLike f n = Command { runCommand = f, inTy = defParamTy, outTy = defParamTy, commandName = n  }
-
 -- Existential command.
 data AnyCommand = forall a b. AnyCommand { runAny :: Command a b }
 
