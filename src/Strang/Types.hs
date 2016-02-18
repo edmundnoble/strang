@@ -1,8 +1,7 @@
 {-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Safe,ExistentialQuantification #-}
 
-module Strang.Types (ParamTy(..),AnyCommand(..),UnTy(..)
-                    ,HasParamTy(..),Command(..),CommandResult
-                    ,InputMode) where
+module Strang.Types (ParamTy(..),AnyCommand(..),HasParamTy(..),Command(..)
+                    ,CommandResult,InputMode,eqTy,(:=:)(..)) where
 
 import Data.Text (Text)
 import Control.Monad.Writer.Strict hiding (sequence)
@@ -14,15 +13,14 @@ data ParamTy a where
     StringTy :: ParamTy Text
     ListTy :: ParamTy a -> ParamTy [a]
 
-data UnTy = forall a. UnTy (ParamTy a)
+data (a :=: b) where
+  Refl :: (a :=: a)
 
-instance Show UnTy where
-  show (UnTy t) = show t
-
-instance Eq UnTy where
-  (==) (UnTy StringTy) (UnTy StringTy) = True
-  (==) (UnTy (ListTy t)) (UnTy (ListTy y)) = UnTy t == UnTy y
-  (==) _ _ = False
+eqTy :: ParamTy a -> ParamTy b -> Maybe (a :=: b)
+eqTy StringTy StringTy = Just Refl
+eqTy (ListTy t1) (ListTy t2) = (\Refl -> Refl) <$> eqTy t1 t2
+eqTy StringTy _ = Nothing
+eqTy (ListTy _) _ = Nothing
 
 instance Show (ParamTy a) where
     show StringTy = "String"

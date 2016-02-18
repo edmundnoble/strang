@@ -7,7 +7,6 @@ import Data.Text (Text)
 import Data.Text.ICU hiding (ParseError,span)
 import qualified Data.Text.ICU as I (span,find)
 import Control.Monad.Writer.Strict hiding (sequence)
-import Unsafe.Coerce
 import Strang.Types
 import Text.Parsec.Error
 import Text.Parsec.Pos (initialPos)
@@ -92,14 +91,14 @@ composeCommands :: Command a b -> Command b c -> Command a c
 composeCommands c1@Command {runCommand = f} c2@Command {runCommand = g} =
   Command { runCommand = f >=> g, commandName = composeNames c1 c2, inTy = inTy c1, outTy = outTy c2 }
 
--- I would really like to remove the unsafeCoerce call here.
--- I'll need a way to recover existential type equality from value equality.
+-- Compose commands, or fail if we can't.
 combineCommands :: AnyCommand -> AnyCommand -> Either String AnyCommand
-combineCommands AnyCommand {runAny = c1@Command {runCommand = f, inTy = it1, outTy = ot1}}
-                AnyCommand {runAny = c2@Command {runCommand = g, inTy = it2, outTy = ot2}}
-                  | UnTy ot1 == UnTy it2 =
-                    (Right . AnyCommand) Command { runCommand = f >=> unsafeCoerce g, commandName = composeNames c1 c2, inTy = it1, outTy = ot2 }
-                  | otherwise = Left $ "Could not unify " ++ show c1 ++ " with " ++ show c2
+combineCommands AnyCommand {runAny = c1@Command {outTy = ot1}}
+                AnyCommand {runAny = c2@Command {inTy = it2}} =
+                  case eqTy ot1 it2 of
+                    Just Refl ->
+                      (Right . AnyCommand) (composeCommands c1 c2)
+                    Nothing -> Left $ "Could not unify " ++ show c1 ++ " with " ++ show c2
 
 typecheckCommands :: [AnyCommand] -> Either String AnyCommand
 typecheckCommands [] = Left "Empty program!"
