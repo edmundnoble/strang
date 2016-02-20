@@ -24,7 +24,8 @@ executable str
         safe -any,
         transformers -any,
         data-default -any,
-        TypeCompose -any
+        TypeCompose -any,
+        tuple-hlist -any
     default-language: Haskell2010
     default-extensions: MultiParamTypeClasses FlexibleInstances
     hs-source-dirs: src

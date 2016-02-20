@@ -4,15 +4,13 @@ module Strang.Parsers (programParser) where
 
 import qualified Data.Text as T
 import Data.Text (Text)
-import Text.Parsec.Prim hiding ((<|>))
+import Text.Parsec hiding ((<|>))
 import Text.Parsec.Text
-import Text.ParserCombinators.Parsec.Char (char, anyChar)
-import Text.Parsec.Combinator
 import Data.Functor
-import Control.Monad.Writer.Strict hiding (sequence)
-import Control.Applicative.Alternative
-import Strang.Types
-import Strang.Commands
+import Data.Maybe
+import Control.Applicative.Alternative hiding (many)
+import Strang.Command
+import Strang.Base
 
 -- A Strang command is a series of characters.
 -- It starts with a mode character, 'l' for line mode or 't' for text mode.
@@ -61,28 +59,44 @@ replaceRegexParser = collapseError $ uncurry makeReplaceRegexCommand <$> (char '
 collapseError :: Show e => Parser (Either e a) -> Parser a
 collapseError p = p >>= either (fail . show) pure
 
-{-
--- Capturing regex command parser. Syntax is:
--- c"<regexstuff>"
-captureRegexParser :: Parser (Command Text [Text])
-captureRegexParser = collapseError $ makeRegexCommand True <$> (char 'c' *> stringArg)
--}
-
 -- Existentials being tricky. Parser alternation operator, converting the second operand
 -- to an AnyCommand.
 (<||>) :: Parser AnyCommand -> Parser (Command a b) -> Parser AnyCommand
 ab <||> cd = ab <|> fmap AnyCommand cd
 
-commandParser :: Parser AnyCommand
-commandParser = parserZero <||> splitParser <||> joinParser <||> replaceRegexParser -- <||> captureRegexParser
--- what do I do with print?
+parserForBinding :: Binding -> Parser AnyCommand
+parserForBinding Binding { bindingName = n, commandFromBinding = c} = string n $> c
 
-compoundCommandParser :: Parser [AnyCommand]
-compoundCommandParser = (join <$> (try (char '(') *> many1 compoundCommandParser <* try (char ')'))) <|> many1 commandParser
+parserForBindings :: [Binding] -> Parser AnyCommand
+parserForBindings bs = foldl (<|>) parserZero (fmap parserForBinding bs)
+
+commandParser :: [Binding] -> Parser AnyCommand
+commandParser bs = parserForBindings bs <||> splitParser <||> joinParser <||> replaceRegexParser
+
+equationParser :: [Binding] -> Parser Binding
+equationParser bs = do
+  name <- try (many1 alphaNum <* many1 space <* char '=' <* many1 space)
+  command <- commandParser bs
+  return $ Binding name command
+
+compoundCommandParser :: [Binding] -> Parser [AnyCommand]
+compoundCommandParser bs = many1 (commandParser bs)
+
+recState :: ([s] -> Parser s) -> [s] -> Parser i -> Parser [s]
+recState f s sep = let ourParser = try (f s) in do
+  newState <- ourParser
+  nextResult <- optionMaybe (try (sep *> recState f (newState:s) sep))
+  return $ newState : fromMaybe [] nextResult
+
+allBindingsParser :: Parser [Binding]
+allBindingsParser = recState equationParser base (many space)
 
 programParser :: Parser (InputMode, [AnyCommand])
 programParser = do
   mode <- modeParser
-  commands <- compoundCommandParser
+  bindings <- option base (try allBindingsParser)
+  many space
+  commands <- compoundCommandParser bindings
+  many space
   eof
   return (mode, commands)
