@@ -1,5 +1,5 @@
 name: strang-interpreter
-version: 0.0.1
+version: 0.0.2
 cabal-version: 1.22
 build-type: Simple
 license: AllRightsReserved
@@ -15,7 +15,6 @@ executable str
         text -any,
         text-icu -any,
         bytestring -any,
-        either -any,
         monadplus -any,
         mtl -any,
         parsec -any,
@@ -23,9 +22,7 @@ executable str
         regex-tdfa -any,
         safe -any,
         transformers -any,
-        data-default -any,
-        TypeCompose -any,
-        tuple-hlist -any
+        data-default -any
     default-language: Haskell2010
     default-extensions: MultiParamTypeClasses FlexibleInstances
     hs-source-dirs: src
