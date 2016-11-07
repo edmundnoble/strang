@@ -12,6 +12,9 @@ import Data.Monoid
 import Control.Applicative.Alternative hiding (many)
 import Strang.Command
 import Strang.Prelude
+import Strang.Lists
+import Strang.Iso
+import Strang.Exists(Exists(..))
 import Control.Arrow
 import Control.Monad
 
@@ -60,17 +63,20 @@ instance Monoid (FKList f) where
   mempty = FK KNil
   mappend = forgetIn2 (forgetOut2 (+|+))
 
-parserForFunctionBinding :: FunctionBindings -> FunctionBinding args -> Parser (CompoundCommand args)
-parserForFunctionBinding bs FunctionBinding { bindingName = n, bindingArguments = args, commandFromFunctionBinding = body } = do
-  string (T.unpack n)
-  as <- parserForUserArgs args
-  (collapseError . return) $ applyFunctionBinding as body
+newtype LoadedBindings = LoadedBindings (forall args. FunctionBinding args -> Parser (CompoundCommand args))
+
+parserForFunctionBinding :: FunctionBindings -> LoadedBindings
+parserForFunctionBinding bs = LoadedBindings $ \b -> case b of
+  FunctionBinding { bindingName = n, bindingArguments = args, commandFromFunctionBinding = body } -> do
+    string (T.unpack n)
+    as <- parserForUserArgs args
+    (collapseError . return) $ applyFunctionBinding as body
 
 parserForUserArgs :: KList NamedParamTy args -> Parser (KList Argument args)
 parserForUserArgs KNil = return KNil
 parserForUserArgs (npt :-: ks) = (:-:) <$> (singleArg . forgetName) npt <*> parserForUserArgs ks
 
-applyFunctionBinding :: KList Argument args -> (HList args -> Either ParseError AnyCommand) -> Either ParseError AnyCommand
+applyFunctionBinding :: KList Argument args -> (HList args -> Either ParseError AnyCommand) -> Either ParseError (CompoundCommand args)
 applyFunctionBinding = undefined
 
 userCommandFromArgs :: KList NamedParamTy args -> FunctionBindings -> Text -> Either ParseError (HList args -> AnyCommand)
@@ -92,8 +98,9 @@ parseArgs args = foldParsers $ kmap parseParam args
 
 commandParserForFunctionBindings :: FunctionBindings -> KList NamedParamTy args -> Parser (CompoundCommand args)
 commandParserForFunctionBindings fbs@FunctionBindings { builtins = bs, userFunctionBindings = us } params =
-  foldl (<|>) parserZero (klistElim (parserForFunctionBinding fbs) bs) <|>
-  foldl (<|>) parserZero (klistElim (parserForFunctionBinding fbs) us)
+  undefined
+  -- foldl (<|>) parserZero (klistElim (parserForFunctionBinding fbs) bs) <|>
+  -- foldl (<|>) parserZero (klistElim (parserForFunctionBinding fbs) us)
 
 -- TODO: introduce new argument types
 bindingArgParser :: Parser (FKList NamedParamTy)
@@ -132,7 +139,7 @@ data CompoundCommandLit inargs funargs = CompoundCommandList {
   compoundCommandLitCommand :: CompoundCommand funargs
 }
 
-combineCompoundCommands :: CompoundCommand args -> CompoundCommand args -> CompoundCommand args
+combineCompoundCommands :: CompoundCommand args -> CompoundCommand args -> Either String (CompoundCommand args)
 combineCompoundCommands = undefined
 
 finalizeCommand :: CompoundCommand args -> AnyCommandWithArgs args

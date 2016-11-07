@@ -11,7 +11,7 @@ import Strang.Command
 import Text.Parsec.Error
 import Text.Parsec.Pos (initialPos)
 import Data.Maybe
-import Strang.HListFunctions
+import Strang.Lists
 
 leftMap :: (a -> b) -> Either a c -> Either b c
 leftMap f = either (Left . f) Right

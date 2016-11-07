@@ -17,12 +17,15 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module Strang.Command (ParamTy(..),AnyCommand(..),HasParamTy(..),Command(..),NamedUnTy(..),liftK,toHlist
-                     ,combineCommands,composeCommands,typecheckCommands,command,commandS,fkcons,(~:~)
-                     ,CommandResult,InputMode,eqTy,(:=:)(..),HList(..),KList(..),FKList(..),NamedParamTy(..)
-                     ,FunctionBinding(..),FFunctionBinding(..),kmap,fkmap,TypedValue(..),klistElim,forgetIn1,forgetOut1
-                     ,forgetIn2,forgetOut2,(+|+),PlusPlus,collapseCommands,Curry(..),Uncurry(..),Exists(..),Iso(..)) where
+module Strang.Command (ParamTy(..),AnyCommand(..),HasParamTy(..),Command(..),NamedUnTy(..)
+                     ,combineCommands,composeCommands,typecheckCommands,command,commandS
+                     ,CommandResult,InputMode,eqTy,(:=:)(..),NamedParamTy(..)
+                     ,FunctionBinding(..),FFunctionBinding(..),TypedValue(..)
+                     ,collapseCommands) where
 
+import Strang.Exists(Exists(..))
+import Strang.Iso(Iso(..),Uncurry(..))
+import Strang.Lists(KList,HList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Control.Monad.Writer.Strict hiding (sequence)
@@ -68,12 +71,6 @@ data NamedUnTy = forall a. NamedUnTy (ParamTy a, Text)
 
 type CommandResult r = Writer [Text] r
 
-newtype Curry (f :: (k1, k2) -> *) (a :: k1) (b :: k2) :: * where
-  Curry :: { runCurry :: f '(a, b) } -> Curry f a b
-
-data Uncurry (f :: k1 -> k2 -> *) (t :: (k1, k2)) :: * where
-  Uncurry :: { runUncurry :: f a b } -> Uncurry f '(a, b)
-
 -- Command type.
 data Command i o where
   Command :: { runCommand :: i -> CommandResult o
@@ -81,26 +78,9 @@ data Command i o where
              , outTy :: ParamTy o
              , commandName :: String } -> Command i o
 
-data Exists f = forall a. Exists (f a)
-
--- Existential command.
+-- Existential commands.
 data AnyCommand = forall a b. AnyCommand { runAny :: Command a b }
-
-class Iso (f :: *) (g :: *) where
-  to :: f -> g
-  from :: g -> f
-
-instance Iso (f i o) (Uncurry f '(i, o)) where
-  to = Uncurry
-  from = runUncurry
-
-instance Iso (f '(i, o)) (Curry f i o) where
-  to = Curry
-  from = runCurry
-
-instance (Functor f, Iso a b) => Iso (f a) (f b) where
-  to = fmap to
-  from = fmap from
+data CommandTaking i = forall o. CommandTaking (Command i o)
 
 instance Iso (Exists (Uncurry Command)) AnyCommand where
   to (Exists (Uncurry c)) = AnyCommand c
@@ -111,81 +91,6 @@ instance Show AnyCommand where
 
 instance Show (Command i o) where
   show = commandName
-
-data HList (l :: [*]) where
-  HNil :: HList '[]
-  HCons :: a -> HList xs -> HList (a ': xs)
-
-infixr 2 :-:
-
--- Higher-kinded list.
-data KList (f :: k -> *) (l :: [k]) where
-  KNil :: KList f '[]
-  (:-:) :: forall (f :: k -> *) (a :: k) (as :: [k]). f a -> KList f as -> KList f (a ': as)
-
-type family Map (f :: k -> *) (args :: [k]) :: [*] where
-  Map f '[] = '[]
-  Map f (x ': xs) = f x ': Map f xs
-
-class LiftK (f :: * -> *) (args :: [*]) where
-  type ExtractF f args :: [*]
-  liftK :: HList args -> KList f (ExtractF f args)
-
-instance LiftK f '[] where
-  type ExtractF f '[] = '[]
-  liftK HNil = KNil
-
-instance LiftK f xs => LiftK f (f x ': xs) where
-  type ExtractF f (f x ': xs) = x ': ExtractF f xs
-  liftK (HCons fa hs) = fa :-: liftK hs
-
-toHlist :: KList f args -> HList (Map f args)
-toHlist KNil = HNil
-toHlist (fa :-: kl) = HCons fa (toHlist kl)
-
--- Forgetful higher-kinded list. Mostly useful with GADTs.
-data FKList (f :: k -> *) = forall args. FK { unFK :: KList f args }
-
-fkcons :: forall (f :: k -> *) (a :: k). f a -> FKList f -> FKList f
-fkcons fa (FK fs) = FK (fa :-: fs)
-
-infixr 2 ~:~
-
-(~:~) :: forall (f :: k -> *) (a :: k). f a -> FKList f -> FKList f
-(~:~) = fkcons
-
-type family PlusPlus (a :: [k]) (b :: [k]) :: [k] where
-  PlusPlus as '[] = as
-  PlusPlus as (b ': bs) = b ': (PlusPlus as bs)
-
-forgetIn1 :: forall f. (forall a. KList f a -> FKList f) -> FKList f -> FKList f
-forgetIn1 f (FK l) = f l
-
-forgetOut1 :: forall f a b. (KList f a -> KList f b) -> KList f a -> FKList f
-forgetOut1 f l = FK (f l)
-
-forgetIn2 :: forall f. (forall a b. KList f a -> KList f b -> FKList f) -> FKList f -> FKList f -> FKList f
-forgetIn2 f (FK fs) (FK gs) = f fs gs
-
-forgetOut2 :: forall f a b c. (KList f a -> KList f b -> KList f c) -> KList f a -> KList f b -> FKList f
-forgetOut2 f = (.) FK . f
-
-(+|+) :: forall f args args2. KList f args -> KList f args2 -> KList f (args `PlusPlus` args2)
-fs +|+ KNil = fs
-fs +|+ (k :-: ks) = k :-: (fs +|+ ks)
-
-klistElim :: (forall a. f a -> s) -> KList f args -> [s]
-klistElim _ KNil = []
-klistElim f (fa :-: ks) = f fa : klistElim f ks
-
--- Higher-kinded map.
-kmap :: (forall a. f a -> g a) -> KList f args -> KList g args
-kmap _ KNil = KNil
-kmap nt (fa :-: kl) = nt fa :-: kmap nt kl
-
--- Higher-kinded forgetful map.
-fkmap :: (forall a. f a -> g a) -> FKList f -> FKList g
-fkmap nt (FK kl) = FK (kmap nt kl)
 
 data NamedParamTy a = NamedParamTy (ParamTy a) Text
 
@@ -241,27 +146,29 @@ autocombine e1@AnyCommand { runAny = Command { outTy = (ListTy _) } } e2@AnyComm
           autocombine e1 AnyCommand { runAny = liftCommand c2 }
 autocombine e1@AnyCommand { runAny = Command {} } e2@AnyCommand { runAny = Command {} } = combineCommands e1 e2
 
--- withType :: forall i o. AnyCommand -> ParamTy i -> ParamTy o -> Either String (Command i o)
--- withType AnyCommand { runAny = cmd } targetInTy targetOutTy = 
-    -- case (eqTy (inTy cmd) targetInTy, eqTy (outTy cmd) targetOutTy) of
-        -- (Just Refl, Just Refl) -> Right cmd
-        -- _ -> Left $ "Expected program to have input and output type " ++ show (targetInTy, targetOutTy) ++ ", but it had types " ++ show (inTy cmd, outTy cmd)
+withInputType :: forall i. ParamTy i -> AnyCommand -> Either String (CommandTaking i)
+withInputType targetInTy AnyCommand { runAny = cmd } =
+    case eqTy (inTy cmd) targetInTy of
+        Just Refl -> Right (CommandTaking cmd)
+        _ -> Left $ "Expected program to have input type " ++ show targetInTy ++
+                    ", but it had input type " ++ show (inTy cmd)
 
 withProgramType :: AnyCommand -> Either String (Command Text Text)
-withProgramType AnyCommand { runAny = c@Command { inTy = StringTy, outTy = ot } } = Right $ composeCommands c (printCommand ot)
-withProgramType AnyCommand { runAny = Command { inTy = ct } } = Left $ "Expected program to have input type Text, found input type " ++ show ct
+withProgramType c = do
+  CommandTaking cmd <- withInputType StringTy c
+  Right $ composeCommands cmd (printCommand (outTy cmd))
 
 -- Print command implementation.
 printCommand :: ParamTy a -> Command a Text
-printCommand it = Command { runCommand = \st -> let p = printTyped it st in writer (p, [p])
+printCommand it = Command { runCommand = pure . printTyped . TypedValue it
                             , inTy = it
                             , outTy = StringTy
                             , commandName = "Print" }
 
 -- Actual print implementation.
-printTyped :: ParamTy a -> a -> Text
-printTyped StringTy str = str
-printTyped (ListTy t) ts = T.pack "[" `T.append` T.intercalate (T.pack ",") (fmap (printTyped t) ts) `T.append` T.pack "]"
+printTyped :: TypedValue a -> Text
+printTyped (TypedValue StringTy str) = str
+printTyped (TypedValue (ListTy t) ts) = T.pack "[" `T.append` T.intercalate (T.pack ",") (fmap (printTyped . TypedValue t) ts) `T.append` T.pack "]"
 
 collapseCommands :: [AnyCommand] -> Either String (Text -> CommandResult Text)
 collapseCommands [] = Left "Empty program!"
