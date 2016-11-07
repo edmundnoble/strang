@@ -1,4 +1,4 @@
-{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Trustworthy,ExistentialQuantification,OverloadedStrings,FunctionalDependencies #-}
+{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Trustworthy,ExistentialQuantification,OverloadedStrings #-}
 
 module Strang.Parsers (programParser) where
 
@@ -13,12 +13,14 @@ import Control.Applicative.Alternative hiding (many)
 import Strang.Command
 import Strang.Prelude
 import Control.Arrow
+import Control.Monad
 
 -- A Strang command is a series of characters.
 -- It starts with a mode character, 'l' for line mode or 't' for text mode.
 modeParser :: Parser InputMode
-modeParser = consumingParser <|> pure (pure . T.pack <$> getLine) where
-                consumingParser = try (char 'l' $> (pure . T.pack <$> getLine)) <|> try (char 't' $> (pure . T.pack <$> getContents))
+modeParser = (<$>) (T.pack <$>) <$> (consumingParser <|> pure multiLine) where
+                consumingParser = try (char 'l' $> multiLine) <|> try (char 't' $> sequence [getContents])
+                multiLine = sequence $ repeat getLine
 
 stringSeparator :: Char
 stringSeparator = '/'
@@ -58,11 +60,11 @@ instance Monoid (FKList f) where
   mempty = FK KNil
   mappend = forgetIn2 (forgetOut2 (+|+))
 
-parserForFunctionBinding :: FunctionBindings -> FKList Argument -> FunctionBinding args -> Parser AnyCommand
-parserForFunctionBinding bs inargs FunctionBinding { bindingName = n, bindingArguments = args, commandFromFunctionBinding = body } = do
+parserForFunctionBinding :: FunctionBindings -> FunctionBinding args -> Parser (CompoundCommand args)
+parserForFunctionBinding bs FunctionBinding { bindingName = n, bindingArguments = args, commandFromFunctionBinding = body } = do
   string (T.unpack n)
   as <- parserForUserArgs args
-  collapseError . return $ applyFunctionBinding as body as
+  (collapseError . return) $ applyFunctionBinding as body
 
 parserForUserArgs :: KList NamedParamTy args -> Parser (KList Argument args)
 parserForUserArgs KNil = return KNil
@@ -88,8 +90,8 @@ foldParsers (pa :-: kl) = HCons <$> pa <*> foldParsers kl
 parseArgs :: KList ParamTy args -> Parser (HList args)
 parseArgs args = foldParsers $ kmap parseParam args
 
-commandParserForFunctionBindings :: FunctionBindings -> FKList NamedParamTy -> Parser AnyCommand
-commandParserForFunctionBindings fbs@FunctionBindings { builtins = (FK bs), userFunctionBindings = (FK us) } params =
+commandParserForFunctionBindings :: FunctionBindings -> KList NamedParamTy args -> Parser (CompoundCommand args)
+commandParserForFunctionBindings fbs@FunctionBindings { builtins = bs, userFunctionBindings = us } params =
   foldl (<|>) parserZero (klistElim (parserForFunctionBinding fbs) bs) <|>
   foldl (<|>) parserZero (klistElim (parserForFunctionBinding fbs) us)
 
@@ -107,42 +109,63 @@ bindingArgParser = do
 singleArgParse :: Parser (ParamTy Text, Text)
 singleArgParse = (const StringTy &&& id) <$> (T.pack <$> many alphaNum)
 
-equationParser :: FKList FunctionBinding -> FKList FunctionBinding -> Parser (FKList TypedValue -> FFunctionBinding)
+equationParser :: FKList FunctionBinding -> FKList FunctionBinding -> Parser (Exists FunctionBinding)
 equationParser bs us = do
   t <- (T.pack <$> many1 alphaNum) >*< bindingArgParser <* many1 space <* char '=' <* many1 space
   let (name, ba) = t
   case ba of
     (FK bindingArgs) -> do
-      cmd <- compoundCommandParser FunctionBindings { userFunctionBindings = us, builtins = bs } bindingArgs
-      let binding a = FunctionBinding name bindingArgs (cmd a)
-      return binding
+      c <- compoundCommandParser FunctionBindings { userFunctionBindings = us, builtins = bs } bindingArgs
+      let (AnyCommandWithArgs cmd) = c
+      let binding = FunctionBinding name bindingArgs (pure . to . cmd)
+      return $ Exists binding
 
-data CommandWithArgs args = CommandWithArgs (KList TypedValue args -> AnyCommand)
+data CommandWithArgs i o args = CommandWithArgs (HList args -> Command i o)
+data AnyCommandWithArgs args = AnyCommandWithArgs (HList args -> Exists (Uncurry Command))
+data CompoundCommand :: [*] -> * where
+  ApplyArg :: forall (args :: [*]) (a :: *). NamedParamTy a -> CompoundCommand args -> CompoundCommand (a ': args)
+  PureCommand :: forall (args :: [*]). AnyCommand -> CompoundCommand args -> CompoundCommand args
+  EmptyCommand :: forall (args :: [*]). CompoundCommand args
 
-compoundCommandParser :: FunctionBindings -> KList NamedParamTy args -> Parser (CommandWithArgs args)
-compoundCommandParser bs tas = many1 (commandParserForFunctionBindings bs tas)
+data CompoundCommandLit inargs funargs = CompoundCommandList {
+  compoundCommandLitArgs :: KList NamedParamTy inargs,
+  compoundCommandLitCommand :: CompoundCommand funargs
+}
 
-data Exists f = forall a. Exists (f a)
+combineCompoundCommands :: CompoundCommand args -> CompoundCommand args -> CompoundCommand args
+combineCompoundCommands = undefined
+
+finalizeCommand :: CompoundCommand args -> AnyCommandWithArgs args
+finalizeCommand = undefined
+
+compoundCommandParser :: FunctionBindings -> KList NamedParamTy args -> Parser (AnyCommandWithArgs args)
+compoundCommandParser bs tas = do
+  a <- many1 (commandParserForFunctionBindings bs tas)
+  let (h:cmds) = a
+  command <- (collapseError . return) $ foldM combineCompoundCommands h cmds
+  return $ finalizeCommand command
 
 accumFK :: forall f i. (FKList f -> Parser (Exists f)) -> FKList f -> Parser i -> Parser (FKList f)
 accumFK f s sep = let ourParser = try (f s) in do
   newStateF <- ourParser
   case newStateF of
     Exists newState -> do
-      nextResult <- optionMaybe (try (sep *> accumFK f (newState -:- s) sep))
-      return $ newState -:- fromMaybe (FK KNil) nextResult
+      nextResult <- optionMaybe (try (sep *> accumFK f (newState ~:~ s) sep))
+      return $ newState ~:~ fromMaybe (FK KNil) nextResult
 
 allFunctionBindingsParser :: FunctionBindings -> Parser FunctionBindings
 allFunctionBindingsParser bs = do
   userFunctionBindings <- accumFK (equationParser (builtins bs)) (userFunctionBindings bs) (many space)
   return FunctionBindings{builtins=builtins bs,userFunctionBindings=userFunctionBindings}
 
-programParser :: Parser (InputMode, [AnyCommand])
+programParser :: Parser (InputMode, AnyCommand)
 programParser = do
   mode <- modeParser
-  userFunctionBindings <- option (mempty :: FunctionBindings) (try $ allFunctionBindingsParser (FunctionBindings (FK KNil) base))
+  userFunctionBindings <- option (FunctionBindings mempty mempty) (try $ allFunctionBindingsParser (FunctionBindings (FK KNil) base))
   many space
-  commands <- compoundCommandParser userFunctionBindings (FK KNil)
+  cmds <- compoundCommandParser userFunctionBindings KNil
+  let (AnyCommandWithArgs cmdf) = cmds
+  let commands = to $ cmdf HNil
   many space
   eof
   return (mode, commands)

@@ -1,10 +1,27 @@
-{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,ExistentialQuantification,ConstraintKinds #-}
+{-# LANGUAGE LiberalTypeSynonyms #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
-module Strang.Command (ParamTy(..),AnyCommand(..),HasParamTy(..),Command(..),NamedUnTy(..)
-                     ,combineCommands,composeCommands,typecheckCommands,command,commandS,fkcons,(-:-)
+module Strang.Command (ParamTy(..),AnyCommand(..),HasParamTy(..),Command(..),NamedUnTy(..),liftK,toHlist
+                     ,combineCommands,composeCommands,typecheckCommands,command,commandS,fkcons,(~:~)
                      ,CommandResult,InputMode,eqTy,(:=:)(..),HList(..),KList(..),FKList(..),NamedParamTy(..)
                      ,FunctionBinding(..),FFunctionBinding(..),kmap,fkmap,TypedValue(..),klistElim,forgetIn1,forgetOut1
-                     ,forgetIn2,forgetOut2,(+|+),PlusPlus,collapseCommands) where
+                     ,forgetIn2,forgetOut2,(+|+),PlusPlus,collapseCommands,Curry(..),Uncurry(..),Exists(..),Iso(..)) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -23,7 +40,7 @@ data ParamTy a where
     StringTy :: ParamTy Text
     ListTy :: ParamTy a -> ParamTy [a]
 
-data (:=:) (a :: *) (b :: *) where
+data (:=:) (a :: k) (b :: k) where
   Refl :: (a :=: a)
 
 eqTy :: ParamTy a -> ParamTy b -> Maybe (a :=: b)
@@ -51,6 +68,12 @@ data NamedUnTy = forall a. NamedUnTy (ParamTy a, Text)
 
 type CommandResult r = Writer [Text] r
 
+newtype Curry (f :: (k1, k2) -> *) (a :: k1) (b :: k2) :: * where
+  Curry :: { runCurry :: f '(a, b) } -> Curry f a b
+
+data Uncurry (f :: k1 -> k2 -> *) (t :: (k1, k2)) :: * where
+  Uncurry :: { runUncurry :: f a b } -> Uncurry f '(a, b)
+
 -- Command type.
 data Command i o where
   Command :: { runCommand :: i -> CommandResult o
@@ -58,8 +81,30 @@ data Command i o where
              , outTy :: ParamTy o
              , commandName :: String } -> Command i o
 
+data Exists f = forall a. Exists (f a)
+
 -- Existential command.
 data AnyCommand = forall a b. AnyCommand { runAny :: Command a b }
+
+class Iso (f :: *) (g :: *) where
+  to :: f -> g
+  from :: g -> f
+
+instance Iso (f i o) (Uncurry f '(i, o)) where
+  to = Uncurry
+  from = runUncurry
+
+instance Iso (f '(i, o)) (Curry f i o) where
+  to = Curry
+  from = runCurry
+
+instance (Functor f, Iso a b) => Iso (f a) (f b) where
+  to = fmap to
+  from = fmap from
+
+instance Iso (Exists (Uncurry Command)) AnyCommand where
+  to (Exists (Uncurry c)) = AnyCommand c
+  from (AnyCommand c) = Exists (Uncurry c)
 
 instance Show AnyCommand where
   show AnyCommand { runAny = c } = show c
@@ -67,16 +112,36 @@ instance Show AnyCommand where
 instance Show (Command i o) where
   show = commandName
 
-infixr 2 :-:
-
 data HList (l :: [*]) where
   HNil :: HList '[]
   HCons :: a -> HList xs -> HList (a ': xs)
+
+infixr 2 :-:
 
 -- Higher-kinded list.
 data KList (f :: k -> *) (l :: [k]) where
   KNil :: KList f '[]
   (:-:) :: forall (f :: k -> *) (a :: k) (as :: [k]). f a -> KList f as -> KList f (a ': as)
+
+type family Map (f :: k -> *) (args :: [k]) :: [*] where
+  Map f '[] = '[]
+  Map f (x ': xs) = f x ': Map f xs
+
+class LiftK (f :: * -> *) (args :: [*]) where
+  type ExtractF f args :: [*]
+  liftK :: HList args -> KList f (ExtractF f args)
+
+instance LiftK f '[] where
+  type ExtractF f '[] = '[]
+  liftK HNil = KNil
+
+instance LiftK f xs => LiftK f (f x ': xs) where
+  type ExtractF f (f x ': xs) = x ': ExtractF f xs
+  liftK (HCons fa hs) = fa :-: liftK hs
+
+toHlist :: KList f args -> HList (Map f args)
+toHlist KNil = HNil
+toHlist (fa :-: kl) = HCons fa (toHlist kl)
 
 -- Forgetful higher-kinded list. Mostly useful with GADTs.
 data FKList (f :: k -> *) = forall args. FK { unFK :: KList f args }
@@ -84,10 +149,10 @@ data FKList (f :: k -> *) = forall args. FK { unFK :: KList f args }
 fkcons :: forall (f :: k -> *) (a :: k). f a -> FKList f -> FKList f
 fkcons fa (FK fs) = FK (fa :-: fs)
 
-infixr 2 -:-
+infixr 2 ~:~
 
-(-:-) :: forall (f :: k -> *) (a :: k). f a -> FKList f -> FKList f
-(-:-) = fkcons
+(~:~) :: forall (f :: k -> *) (a :: k). f a -> FKList f -> FKList f
+(~:~) = fkcons
 
 type family PlusPlus (a :: [k]) (b :: [k]) :: [k] where
   PlusPlus as '[] = as
@@ -124,10 +189,12 @@ fkmap nt (FK kl) = FK (kmap nt kl)
 
 data NamedParamTy a = NamedParamTy (ParamTy a) Text
 
-data FunctionBinding args = FunctionBinding {
-               bindingName :: Text
-             , bindingArguments :: KList NamedParamTy args
-             , commandFromFunctionBinding :: HList args -> Either ParseError AnyCommand }
+instance Eq (NamedParamTy a) where
+  (NamedParamTy _ n1) == (NamedParamTy _ n2) = n1 == n2
+
+data FunctionBinding args = FunctionBinding { bindingName :: Text
+                                            , bindingArguments :: KList NamedParamTy args
+                                            , commandFromFunctionBinding :: HList args -> Either ParseError AnyCommand }
 
 data FFunctionBinding = forall args. FFunctionBinding (FunctionBinding args)
 
@@ -173,6 +240,12 @@ autocombine e1@AnyCommand { runAny = Command { outTy = (ListTy _) } } e2@AnyComm
           combineCommands e1 e2 `orElse`
           autocombine e1 AnyCommand { runAny = liftCommand c2 }
 autocombine e1@AnyCommand { runAny = Command {} } e2@AnyCommand { runAny = Command {} } = combineCommands e1 e2
+
+-- withType :: forall i o. AnyCommand -> ParamTy i -> ParamTy o -> Either String (Command i o)
+-- withType AnyCommand { runAny = cmd } targetInTy targetOutTy = 
+    -- case (eqTy (inTy cmd) targetInTy, eqTy (outTy cmd) targetOutTy) of
+        -- (Just Refl, Just Refl) -> Right cmd
+        -- _ -> Left $ "Expected program to have input and output type " ++ show (targetInTy, targetOutTy) ++ ", but it had types " ++ show (inTy cmd, outTy cmd)
 
 withProgramType :: AnyCommand -> Either String (Command Text Text)
 withProgramType AnyCommand { runAny = c@Command { inTy = StringTy, outTy = ot } } = Right $ composeCommands c (printCommand ot)
