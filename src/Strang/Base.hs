@@ -1,23 +1,6 @@
-{-# LANGUAGE DataKinds                 #-}
-{-# LANGUAGE DefaultSignatures         #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE GADTs                     #-}
-{-# LANGUAGE ImpredicativeTypes        #-}
-{-# LANGUAGE InstanceSigs              #-}
-{-# LANGUAGE LiberalTypeSynonyms       #-}
-{-# LANGUAGE MonoLocalBinds            #-}
-{-# LANGUAGE NamedFieldPuns            #-}
 {-# LANGUAGE OverloadedStrings         #-}
-{-# LANGUAGE PolyKinds                 #-}
-{-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE Trustworthy               #-}
-{-# LANGUAGE TupleSections             #-}
-{-# LANGUAGE TypeFamilies              #-}
-{-# LANGUAGE TypeOperators             #-}
-{-# LANGUAGE UndecidableInstances      #-}
 
 module Strang.Base(splitCommand,printCommand,printTyped,joinCommand,leftMap,makeReplaceRegexCommand,base) where
 

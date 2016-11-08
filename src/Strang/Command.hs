@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE DefaultSignatures         #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts          #-}
@@ -9,14 +8,8 @@
 {-# LANGUAGE LiberalTypeSynonyms       #-}
 {-# LANGUAGE MonoLocalBinds            #-}
 {-# LANGUAGE NamedFieldPuns            #-}
-{-# LANGUAGE PolyKinds                 #-}
-{-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE Safe                      #-}
-{-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE TupleSections             #-}
-{-# LANGUAGE TypeFamilies              #-}
 {-# LANGUAGE TypeOperators             #-}
-{-# LANGUAGE UndecidableInstances      #-}
 
 module Strang.Command (ParamTy(..),AnyCommand(..),HasParamTy(..),Command(..),Binding(..),
                      combineCommands,composeCommands,typecheckCommands,command,commandS,CommandResult,OutputMode(..),output,eqTy,(:=:)(..)) where
