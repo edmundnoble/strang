@@ -3,6 +3,7 @@
 module Strang.Parsers (programParser) where
 
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Text (Text)
 import Text.Parsec hiding ((<|>))
 import Text.Parsec.Text
@@ -15,8 +16,8 @@ import Strang.Base
 -- A Strang command is a series of characters.
 -- It starts with a mode character, 'l' for line mode or 't' for text mode.
 modeParser :: Parser InputMode
-modeParser = consumingParser <|> pure (pure . T.pack <$> getLine) where
-                consumingParser = try (char 'l' $> (pure . T.pack <$> getLine)) <|> try (char 't' $> (pure . T.pack <$> getContents))
+modeParser = consumingParser <|> pure (pure <$> TIO.getLine) where
+                consumingParser = try (char 'l' $> (pure <$> TIO.getLine)) <|> try (char 't' $> (pure <$> TIO.getContents))
 
 -- This is for passing strings to commands.
 stringArg :: Parser Text
