@@ -36,4 +36,4 @@ executable str
       ,Strang.Parsers
       ,Strang.Prelude
     hs-source-dirs: src
-    GHC-Options: -W -O
+    GHC-Options: -W
