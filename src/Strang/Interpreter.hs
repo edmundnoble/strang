@@ -49,9 +49,13 @@ module Strang.Interpreter (interpretProgram,InterpreterOptions,OutputOptions,sho
   printCompilationError :: String -> IO ()
   printCompilationError = putStrLn . ("Compilation error: " ++)
 
+  valueOr :: (a -> b) -> Either a b -> b
+  valueOr _ (Right r) = r
+  valueOr f (Left l) = f l
+
   interpretProgram :: Text -> InterpreterOptions -> IO ()
   interpretProgram cmd opts =
-    either printCompilationError id $ do
+    valueOr printCompilationError $ do
       modeAndCmd <- parseProgram cmd
       let (mode, cmd) = modeAndCmd
       composedProgram <- runCommand <$> withProgramType cmd
