@@ -17,6 +17,7 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Strang.Interpreter (interpretProgram,InterpreterOptions,OutputOptions) where
 
@@ -27,12 +28,19 @@ module Strang.Interpreter (interpretProgram,InterpreterOptions,OutputOptions) wh
   import Strang.Parsers(programParser)
   import Strang.Prelude(leftMap)
   import Control.Monad.Writer.Strict hiding (sequence)
+  import Data.Default
 
   parseProgram :: Text -> Either String (InputMode, AnyCommand)
   parseProgram pgm = leftMap (\e -> "Parsing error: " ++ show e) (parse programParser "" pgm)
 
   data InterpreterOptions = InterpreterOptions { outputOptions :: OutputOptions }
   data OutputOptions = OutputOptions { showLog :: Bool }
+
+  instance Default OutputOptions where
+    def = OutputOptions { showLog = False }
+
+  instance Default InterpreterOptions where
+    def = InterpreterOptions def
 
   printCompilationError :: String -> IO ()
   printCompilationError = putStrLn . ("Compilation error: " ++)

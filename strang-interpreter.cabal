@@ -23,8 +23,17 @@ executable str
         regex-tdfa -any,
         safe -any,
         transformers -any,
+        lens -any,
         data-default -any
     default-language: Haskell2010
     default-extensions: MultiParamTypeClasses FlexibleInstances
+    other-modules:
+      Strang.Command
+      ,Strang.Exists
+      ,Strang.Interpreter
+      ,Strang.Iso
+      ,Strang.Lists
+      ,Strang.Parsers
+      ,Strang.Prelude
     hs-source-dirs: src
     GHC-Options: -W -O
