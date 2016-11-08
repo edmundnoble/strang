@@ -17,6 +17,7 @@ executable str
         bytestring -any,
         monadplus -any,
         mtl -any,
+        containers -any,
         parsec -any,
         regex-base -any,
         regex-tdfa -any,

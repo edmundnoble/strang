@@ -134,10 +134,11 @@ data CompoundCommand :: [*] -> * where
   PureCommand :: forall (args :: [*]). AnyCommand -> CompoundCommand args -> CompoundCommand args
   EmptyCommand :: forall (args :: [*]). CompoundCommand args
 
-data CompoundCommandLit inargs funargs = CompoundCommandList {
-  compoundCommandLitArgs :: KList NamedParamTy inargs,
-  compoundCommandLitCommand :: CompoundCommand funargs
-}
+data CompoundCommandLit inargs funargs =
+  CompoundCommandList
+  (KList NamedParamTy inargs)
+  (CompoundCommand funargs)
+
 
 combineCompoundCommands :: CompoundCommand args -> CompoundCommand args -> Either String (CompoundCommand args)
 combineCompoundCommands = undefined

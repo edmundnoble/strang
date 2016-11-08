@@ -19,7 +19,7 @@
 
 module Strang.Command (ParamTy(..),AnyCommand(..),HasParamTy(..),Command(..),NamedUnTy(..)
                      ,combineCommands,composeCommands,typecheckCommands,command,commandS
-                     ,CommandResult,InputMode,eqTy,(:=:)(..),NamedParamTy(..)
+                     ,CommandResult,InputMode,eqTy,(:=:)(..),NamedParamTy(..),withProgramType
                      ,FunctionBinding(..),FFunctionBinding(..),TypedValue(..)
                      ,collapseCommands) where
 
