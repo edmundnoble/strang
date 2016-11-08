@@ -25,7 +25,6 @@ newtype Curry (f :: (k1, k2) -> *) (a :: k1) (b :: k2) :: * where
 data Uncurry (f :: k1 -> k2 -> *) (t :: (k1, k2)) :: * where
   Uncurry :: { runUncurry :: f a b } -> Uncurry f '(a, b)
 
-
 class Iso (f :: *) (g :: *) where
   to :: f -> g
   from :: g -> f

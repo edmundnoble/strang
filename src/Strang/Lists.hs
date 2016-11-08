@@ -20,7 +20,8 @@
 
 module Strang.Lists
   (HList(..),KList(..),FKList(..),kmap,fkmap,HLstClass(..)
-  ,klistElim,forgetIn1,forgetOut1,forgetIn2,forgetOut2,(+|+),PlusPlus,fkcons,(~:~),liftK,toHlist) where
+  ,klistElim,forgetIn1,forgetOut1,forgetIn2,forgetOut2
+  ,(+|+),PlusPlus,fkcons,(~:~),liftK,toHlist) where
 
 data HList (l :: [*]) where
   HNil :: HList '[]
@@ -68,6 +69,10 @@ type family PlusPlus (a :: [k]) (b :: [k]) :: [k] where
   PlusPlus as '[] = as
   PlusPlus as (b ': bs) = b ': (PlusPlus as bs)
 
+(+|+) :: forall f args args2. KList f args -> KList f args2 -> KList f (args `PlusPlus` args2)
+fs +|+ KNil = fs
+fs +|+ (k :-: ks) = k :-: (fs +|+ ks)
+
 forgetIn1 :: forall f. (forall a. KList f a -> FKList f) -> FKList f -> FKList f
 forgetIn1 f (FK l) = f l
 
@@ -79,10 +84,6 @@ forgetIn2 f (FK fs) (FK gs) = f fs gs
 
 forgetOut2 :: forall f a b c. (KList f a -> KList f b -> KList f c) -> KList f a -> KList f b -> FKList f
 forgetOut2 f = (.) FK . f
-
-(+|+) :: forall f args args2. KList f args -> KList f args2 -> KList f (args `PlusPlus` args2)
-fs +|+ KNil = fs
-fs +|+ (k :-: ks) = k :-: (fs +|+ ks)
 
 klistElim :: (forall a. f a -> s) -> KList f args -> [s]
 klistElim _ KNil = []
