@@ -1,10 +1,28 @@
-{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Safe,ExistentialQuantification #-}
+{-# LANGUAGE DataKinds                 #-}
+{-# LANGUAGE DefaultSignatures         #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE GADTs                     #-}
+{-# LANGUAGE ImpredicativeTypes        #-}
+{-# LANGUAGE InstanceSigs              #-}
+{-# LANGUAGE LiberalTypeSynonyms       #-}
+{-# LANGUAGE MonoLocalBinds            #-}
+{-# LANGUAGE NamedFieldPuns            #-}
+{-# LANGUAGE PolyKinds                 #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE Safe                      #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE TupleSections             #-}
+{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE TypeOperators             #-}
+{-# LANGUAGE UndecidableInstances      #-}
 
 module Strang.Command (ParamTy(..),AnyCommand(..),HasParamTy(..),Command(..),Binding(..),
-                     combineCommands,composeCommands,typecheckCommands,command,commandS,CommandResult,InputMode,OutputMode(..),output,eqTy,(:=:)(..)) where
+                     combineCommands,composeCommands,typecheckCommands,command,commandS,CommandResult,OutputMode(..),output,eqTy,(:=:)(..)) where
 
-import Data.Text (Text)
-import Control.Monad.Writer.Strict hiding (sequence)
+import           Control.Monad.Writer.Strict hiding (sequence)
+import           Data.Text                   (Text)
 
 orElse :: Either a b -> Either a b -> Either a b
 l1@(Left _) `orElse` (Left _) = l1
@@ -12,7 +30,6 @@ l1@(Left _) `orElse` (Left _) = l1
 (Right _) `orElse` r@(Right _) = r
 r@(Right _) `orElse` (Left _) = r
 
-type InputMode = IO [Text]
 data OutputMode a = OutputMode (ParamTy a) (a -> Text)
 
 output :: HasParamTy a => (a -> Text) -> OutputMode a
@@ -62,7 +79,7 @@ instance Show AnyCommand where
 instance Show (Command i o) where
   show = commandName
 
-data Binding = Binding { bindingName :: String
+data Binding = Binding { bindingName        :: String
                        , commandFromBinding :: AnyCommand }
 
 composeNames :: Command i1 o1 -> Command i2 o2 -> String

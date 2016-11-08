@@ -1,16 +1,35 @@
-{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Trustworthy,ExistentialQuantification,OverloadedStrings #-}
+{-# LANGUAGE DataKinds                 #-}
+{-# LANGUAGE DefaultSignatures         #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE GADTs                     #-}
+{-# LANGUAGE ImpredicativeTypes        #-}
+{-# LANGUAGE InstanceSigs              #-}
+{-# LANGUAGE LiberalTypeSynonyms       #-}
+{-# LANGUAGE MonoLocalBinds            #-}
+{-# LANGUAGE NamedFieldPuns            #-}
+{-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE PolyKinds                 #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE Trustworthy               #-}
+{-# LANGUAGE TupleSections             #-}
+{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE TypeOperators             #-}
+{-# LANGUAGE UndecidableInstances      #-}
 
 module Strang.Base(splitCommand,printCommand,printTyped,joinCommand,leftMap,makeReplaceRegexCommand,base) where
 
-import qualified Data.Text as T
-import Data.Text (Text)
-import Data.Text.ICU hiding (ParseError,span)
-import qualified Data.Text.ICU as I (span,find)
-import Control.Monad.Writer.Strict hiding (sequence)
-import Strang.Command
-import Text.Parsec.Error
-import Text.Parsec.Pos (initialPos)
-import Data.Maybe
+import           Control.Monad.Writer.Strict hiding (sequence)
+import           Data.Maybe
+import           Data.Text                   (Text)
+import qualified Data.Text                   as T
+import           Data.Text.ICU               hiding (ParseError, span)
+import qualified Data.Text.ICU               as I (find, span)
+import           Strang.Command
+import           Text.Parsec.Error
+import           Text.Parsec.Pos             (initialPos)
 
 leftMap :: (a -> b) -> Either a c -> Either b c
 leftMap f = either (Left . f) Right

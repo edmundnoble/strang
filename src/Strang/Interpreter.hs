@@ -1,16 +1,35 @@
-{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Trustworthy,ExistentialQuantification #-}
+{-# LANGUAGE DataKinds                 #-}
+{-# LANGUAGE DefaultSignatures         #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE GADTs                     #-}
+{-# LANGUAGE ImpredicativeTypes        #-}
+{-# LANGUAGE InstanceSigs              #-}
+{-# LANGUAGE LiberalTypeSynonyms       #-}
+{-# LANGUAGE MonoLocalBinds            #-}
+{-# LANGUAGE NamedFieldPuns            #-}
+{-# LANGUAGE PolyKinds                 #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE Trustworthy               #-}
+{-# LANGUAGE TupleSections             #-}
+{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE TypeOperators             #-}
+{-# LANGUAGE UndecidableInstances      #-}
 
 module Strang.Interpreter (interpretProgram) where
 
-import qualified Data.Text as T
-import Data.Text (Text)
-import qualified Data.Text.IO as TIO
-import Text.Parsec.Prim hiding ((<|>))
-import Control.Arrow
-import Data.List
-import Strang.Command
-import Strang.Parsers(programParser)
-import Strang.Base(leftMap,printCommand)
+import           Control.Arrow
+import           Data.List
+import           Data.Text        (Text)
+import qualified Data.Text        as T
+import qualified Data.Text.IO     as TIO
+import           Strang.Base      (leftMap, printCommand)
+import           Strang.Input
+import           Strang.Command
+import           Strang.Parsers   (programParser)
+import           Text.Parsec.Prim hiding ((<|>))
 
 putIn :: Functor m => a -> m b -> m (a, b)
 putIn x = fmap (const x &&& id)
@@ -31,4 +50,4 @@ interpretProgram cmd = let programAndModeOrErr = parseProgram cmd
                            composedProgramOrErr :: Either String (InputMode, Text -> Text)
                            composedProgramOrErr = programAndModeOrErr >>= (\(m, c) -> putIn m ((\f -> foldl' T.append T.empty . f) <$> collapseCommands c))
                            errorHandling err = putStrLn $ "Compilation error: " ++ err
-                           in either errorHandling (\(mode, prog) -> mode >>= (sequence_ . fmap (TIO.putStrLn . prog))) composedProgramOrErr
+                           in either errorHandling (\(mode, prog) -> interpretInputMode mode >>= (TIO.putStrLn . prog)) composedProgramOrErr

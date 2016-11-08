@@ -1,23 +1,46 @@
-{-# LANGUAGE LiberalTypeSynonyms,ImpredicativeTypes,FlexibleContexts,DataKinds,TypeFamilies,RankNTypes,TupleSections,NamedFieldPuns,GADTs,MonoLocalBinds,ScopedTypeVariables,PolyKinds,TypeOperators,UndecidableInstances,FlexibleInstances,InstanceSigs,DefaultSignatures,Trustworthy,ExistentialQuantification #-}
+{-# LANGUAGE DataKinds                 #-}
+{-# LANGUAGE DefaultSignatures         #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts          #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE GADTs                     #-}
+{-# LANGUAGE ImpredicativeTypes        #-}
+{-# LANGUAGE InstanceSigs              #-}
+{-# LANGUAGE LiberalTypeSynonyms       #-}
+{-# LANGUAGE MonoLocalBinds            #-}
+{-# LANGUAGE NamedFieldPuns            #-}
+{-# LANGUAGE PolyKinds                 #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE Trustworthy               #-}
+{-# LANGUAGE TupleSections             #-}
+{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE TypeOperators             #-}
+{-# LANGUAGE UndecidableInstances      #-}
 
 module Strang.Parsers (programParser) where
 
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
-import Data.Text (Text)
-import Text.Parsec hiding ((<|>))
-import Text.Parsec.Text
-import Data.Functor
-import Data.Maybe
-import Control.Applicative.Alternative hiding (many)
-import Strang.Command
-import Strang.Base
+import           Control.Applicative.Alternative hiding (many)
+import           Data.Functor
+import           Data.Maybe
+import           Data.Text                       (Text)
+import qualified Data.Text                       as T
+import           Strang.Base
+import           Strang.Command
+import           Strang.Input
+import           Text.Parsec                     hiding ((<|>))
+import           Text.Parsec.Text
+
+infixr 6 `as`
+
+as :: Functor f => f a -> b -> f b
+fa `as` b = fmap (const b) fa
 
 -- A Strang command is a series of characters.
 -- It starts with a mode character, 'l' for line mode or 't' for text mode.
 modeParser :: Parser InputMode
-modeParser = consumingParser <|> pure (pure <$> TIO.getLine) where
-                consumingParser = try (char 'l' $> (pure <$> TIO.getLine)) <|> try (char 't' $> (pure <$> TIO.getContents))
+modeParser = consumingParser <|> pure singleLine where
+                consumingParser = try (char 'l' `as` singleLine) <|> try (char 't' `as` multiLine)
 
 -- This is for passing strings to commands.
 stringArg :: Parser Text

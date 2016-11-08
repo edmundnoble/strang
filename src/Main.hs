@@ -2,10 +2,10 @@
 
 module Main (main) where
 
-import Strang.Interpreter
-import Data.Text
-import qualified Data.Text.IO as TIO
-import Data.Monoid
+import           Data.Monoid
+import           Data.Text
+import qualified Data.Text.IO       as TIO
+import           Strang.Interpreter
 
 input :: IO Text
 input = do
