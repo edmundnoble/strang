@@ -1,6 +1,6 @@
-{-# LANGUAGE Trustworthy               #-}
+{-# LANGUAGE Safe               #-}
 
-module Strang.Parsers (programParser) where
+module Strang.Parsers (programParser,programAndModeParser) where
 
 import           Control.Applicative.Alternative hiding (many)
 import           Data.Functor
@@ -97,12 +97,17 @@ recState f s sep = let ourParser = try (f s) in do
 allBindingsParser :: Parser [Binding]
 allBindingsParser = recState equationParser base (many space)
 
-programParser :: Parser (InputMode, [AnyCommand])
+programParser :: Parser [AnyCommand]
 programParser = do
-  mode <- modeParser
   bindings <- option base (try allBindingsParser)
   many space
   commands <- compoundCommandParser bindings
   many space
   eof
+  return commands
+
+programAndModeParser :: Parser (InputMode, [AnyCommand])
+programAndModeParser = do
+  mode <- modeParser
+  commands <- programParser
   return (mode, commands)

@@ -1,3 +1,5 @@
+{-# LANGUAGE Safe #-}
+
 module Strang.Input(InputMode(..),singleLine,multiLine,interpretInputMode) where
 
 import           Data.Text

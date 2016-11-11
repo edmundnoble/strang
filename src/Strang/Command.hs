@@ -1,13 +1,5 @@
-{-# LANGUAGE DefaultSignatures         #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE GADTs                     #-}
-{-# LANGUAGE ImpredicativeTypes        #-}
-{-# LANGUAGE InstanceSigs              #-}
-{-# LANGUAGE LiberalTypeSynonyms       #-}
-{-# LANGUAGE MonoLocalBinds            #-}
-{-# LANGUAGE NamedFieldPuns            #-}
 {-# LANGUAGE Safe                      #-}
 {-# LANGUAGE TypeOperators             #-}
 

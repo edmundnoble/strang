@@ -18,4 +18,4 @@ input = do
 main :: IO ()
 main = do
    program <- input
-   interpretProgram program
+   runProgram program

@@ -28,11 +28,25 @@ executable str
     default-language: Haskell2010
     default-extensions: MultiParamTypeClasses FlexibleInstances
     hs-source-dirs: src
-    GHC-Options: -W -O
+    GHC-Options: -W
 
 Test-Suite examples
     type:              exitcode-stdio-1.0
-    main-is:           Examples.hs
-    build-depends:     base == 4.*, HTF == 0.10.*
+    main-is:           examples/Examples.hs
+    build-depends:     base == 4.*, HTF == 0.13.*,
+        array -any,
+        text -any,
+        text-icu -any,
+        bytestring -any,
+        either -any,
+        monadplus -any,
+        mtl -any,
+        parsec -any,
+        regex-base -any,
+        regex-tdfa -any,
+        safe -any,
+        transformers -any,
+        data-default -any,
+        TypeCompose -any
     default-language:  Haskell2010
-    hs-source-dirs: src/examples
+    hs-source-dirs: src
